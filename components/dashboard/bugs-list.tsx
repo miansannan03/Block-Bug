@@ -64,7 +64,7 @@ export function BugsList() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-bold text-foreground">Bug Reports</h2>
-          <p className="text-muted-foreground">Manage and track all reported bugs ({filteredBugs.length})</p>
+          <p className="text-muted-foreground">Manage & track all reported bugs ({filteredBugs.length})</p>
         </div>
         <Button className="gap-2 shadow-lg hover:shadow-xl transition-shadow">
           <Plus className="w-4 h-4" />
