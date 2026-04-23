@@ -1,25 +1,45 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BarChart3, Bug, FileText, FolderOpen, Settings, Home, Moon, Sun, HelpCircle } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useTheme } from 'next-themes'
 
 interface SidebarProps {
   currentPage: string
   onPageChange: (page: any) => void
+  userRole?: string
 }
 
-export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
-  const [isDark, setIsDark] = useState(false)
+export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
+  const [mounted, setMounted] = useState(false)
+  const { resolvedTheme, setTheme } = useTheme()
 
-  const menuItems = [
-    { id: 'overview', label: 'Overview', icon: Home },
-    { id: 'bugs', label: 'Bug Reports', icon: Bug },
-    { id: 'reports', label: 'Analytics', icon: BarChart3 },
-    { id: 'projects', label: 'Projects', icon: FolderOpen },
-    { id: 'settings', label: 'Settings', icon: Settings },
-  ]
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const currentTheme = mounted ? resolvedTheme : 'light'
+
+  const getMenuItems = () => {
+    if (userRole === 'tester') {
+      return [
+        { id: 'overview', label: 'My Dashboard', icon: Home },
+        { id: 'bugs', label: 'Bug Reports', icon: Bug },
+        { id: 'settings', label: 'Settings', icon: Settings },
+      ]
+    }
+
+    return [
+      { id: 'overview', label: 'Overview', icon: Home },
+      { id: 'bugs', label: 'Bug Reports', icon: Bug },
+      { id: 'reports', label: 'Analytics', icon: BarChart3 },
+      { id: 'projects', label: 'Projects', icon: FolderOpen },
+      { id: 'settings', label: 'Settings', icon: Settings },
+    ]
+  }
+
+  const menuItems = getMenuItems()
 
   return (
     <div className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
@@ -62,11 +82,11 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
       {/* Footer */}
       <div className="p-4 border-t border-sidebar-border space-y-3">
         <button
-          onClick={() => setIsDark(!isDark)}
+          onClick={() => setTheme(currentTheme === 'dark' ? 'light' : 'dark')}
           className="w-full flex items-center justify-between px-3 py-2 hover:bg-sidebar-accent/50 rounded-lg transition"
         >
           <span className="text-xs font-medium text-sidebar-foreground">Theme</span>
-          {isDark ? (
+          {currentTheme === 'dark' ? (
             <Sun className="w-4 h-4 text-sidebar-foreground" />
           ) : (
             <Moon className="w-4 h-4 text-sidebar-foreground" />
