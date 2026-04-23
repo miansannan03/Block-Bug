@@ -8,9 +8,10 @@ import { useState } from 'react'
 interface HeaderProps {
   user: User | null
   onLogout: () => void
+  onNavigateToPage: (page: string) => void
 }
 
-export function Header({ user, onLogout }: HeaderProps) {
+export function Header({ user, onLogout, onNavigateToPage }: HeaderProps) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
 
@@ -26,7 +27,10 @@ export function Header({ user, onLogout }: HeaderProps) {
           {/* Notifications */}
           <div className="relative">
             <button
-              onClick={() => setShowNotifications(!showNotifications)}
+              onClick={() => {
+                setShowNotifications(!showNotifications)
+                setShowUserMenu(false)
+              }}
               className="relative p-2 hover:bg-muted rounded-lg transition"
             >
               <Bell className="w-5 h-5 text-foreground" />
@@ -60,7 +64,10 @@ export function Header({ user, onLogout }: HeaderProps) {
           {/* User Menu */}
           <div className="relative">
             <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
+              onClick={() => {
+                setShowUserMenu(!showUserMenu)
+                setShowNotifications(false)
+              }}
               className="flex items-center gap-3 px-3 py-2 hover:bg-muted rounded-lg transition"
             >
               <div className="w-8 h-8 bg-gradient-to-br from-primary to-accent rounded-full flex items-center justify-center text-primary-foreground font-semibold text-sm">
@@ -81,12 +88,20 @@ export function Header({ user, onLogout }: HeaderProps) {
                 </div>
                 <div className="p-2 space-y-1">
                   <button
+                    onClick={() => {
+                      onNavigateToPage('settings')
+                      setShowUserMenu(false)
+                    }}
                     className="w-full flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted rounded transition"
                   >
                     <UserIcon className="w-4 h-4" />
                     Profile
                   </button>
                   <button
+                    onClick={() => {
+                      onNavigateToPage('settings')
+                      setShowUserMenu(false)
+                    }}
                     className="w-full flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted rounded transition"
                   >
                     <Settings className="w-4 h-4" />
