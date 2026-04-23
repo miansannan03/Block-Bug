@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const { login } = useAuth()
+  const { login, availableUsers } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -59,9 +59,11 @@ export default function LoginPage() {
           <div className="bg-muted p-4 rounded-lg mb-6 text-sm">
             <p className="font-semibold text-foreground mb-2">Demo Credentials:</p>
             <ul className="space-y-1 text-muted-foreground">
-              <li>• admin@blockbug.dev / demo123</li>
-              <li>• sarah@blockbug.dev / demo123</li>
-              <li>• mike@blockbug.dev / demo123</li>
+              {availableUsers.map((demoUser) => (
+                <li key={demoUser.email}>
+                  • {demoUser.email} / demo123 ({demoUser.role.charAt(0).toUpperCase() + demoUser.role.slice(1)})
+                </li>
+              ))}
             </ul>
           </div>
 

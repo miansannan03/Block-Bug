@@ -47,7 +47,7 @@ export default function SignupPage() {
 
         <Card className="p-8 border border-border">
           <h1 className="text-2xl font-bold mb-2">Create Account</h1>
-          <p className="text-muted-foreground mb-6">Start tracking bugs more effectively</p>
+          <p className="text-muted-foreground mb-6">Start tracking bugs more effectively. New accounts are created as tester roles by default.</p>
 
           {error && (
             <Alert variant="destructive" className="mb-6">

@@ -4,6 +4,56 @@ import React, { createContext, useContext, useState, useEffect } from 'react'
 
 export type UserRole = 'admin' | 'manager' | 'developer' | 'tester'
 
+export interface RoleDefinition {
+  label: string
+  description: string
+  permissions: string[]
+}
+
+export const ROLE_DEFINITIONS: Record<UserRole, RoleDefinition> = {
+  admin: {
+    label: 'Administrator',
+    description: 'Full system access, user management, and configuration control.',
+    permissions: [
+      'manage-users',
+      'view-all-reports',
+      'edit-projects',
+      'assign-bugs',
+      'configure-settings',
+    ],
+  },
+  manager: {
+    label: 'Manager',
+    description: 'Oversees bug pipelines, assigns work, and tracks team progress.',
+    permissions: [
+      'view-reports',
+      'assign-bugs',
+      'review-bug-status',
+      'approve-resolutions',
+    ],
+  },
+  developer: {
+    label: 'Developer',
+    description: 'Fixes bugs, comments on reports, and updates status through the workflow.',
+    permissions: [
+      'view-assigned-bugs',
+      'comment-on-bugs',
+      'change-bug-status',
+      'update-resolution-details',
+    ],
+  },
+  tester: {
+    label: 'Tester',
+    description: 'Reports bugs, verifies fixes, and tracks bug resolution status.',
+    permissions: [
+      'create-bug-report',
+      'view-my-bug-reports',
+      'add-bug-comments',
+      'verify-fixes',
+    ],
+  },
+}
+
 export interface User {
   id: string
   name: string
@@ -19,14 +69,18 @@ interface AuthContextType {
   signup: (name: string, email: string, password: string) => Promise<void>
   logout: () => void
   isAuthenticated: boolean
+  availableUsers: User[]
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const MOCK_USERS = [
-  { id: '1', name: 'Alex Chen', email: 'alex@blockbug.dev', password: 'demo123', role: 'admin' as UserRole },
-  { id: '2', name: 'Sarah Dev', email: 'sarah@blockbug.dev', password: 'demo123', role: 'developer' as UserRole },
-  { id: '3', name: 'Mike Tester', email: 'mike@blockbug.dev', password: 'demo123', role: 'tester' as UserRole },
+type StoredUser = User & { password: string }
+
+const MOCK_USERS: StoredUser[] = [
+  { id: '1', name: 'Alex Chen', email: 'alex@blockbug.dev', password: 'demo123', role: 'admin' },
+  { id: '2', name: 'Nina Park', email: 'nina@blockbug.dev', password: 'demo123', role: 'manager' },
+  { id: '3', name: 'Sarah Dev', email: 'sarah@blockbug.dev', password: 'demo123', role: 'developer' },
+  { id: '4', name: 'Mike Tester', email: 'mike@blockbug.dev', password: 'demo123', role: 'tester' },
 ]
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -54,10 +108,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const user: User = { id: mockUser.id, name: mockUser.name, email: mockUser.email, role: mockUser.role }
       setUser(user)
       localStorage.setItem('blockbug_user', JSON.stringify(user))
-    } else {
-      throw new Error('Invalid email or password')
+      setIsLoading(false)
+      return
     }
+
     setIsLoading(false)
+    throw new Error('Invalid email or password')
   }
 
   const signup = async (name: string, email: string, password: string) => {
@@ -68,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       id: Math.random().toString(36).substr(2, 9),
       name,
       email,
-      role: 'developer',
+      role: 'tester',
     }
     setUser(newUser)
     localStorage.setItem('blockbug_user', JSON.stringify(newUser))
@@ -81,7 +137,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, signup, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        login,
+        signup,
+        logout,
+        isAuthenticated: !!user,
+        availableUsers: MOCK_USERS.map(({ password, ...userData }) => userData),
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )
