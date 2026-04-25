@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { mockBugs, mockProjects, type Bug } from '@/lib/mock-data'
+import { api, type Bug, type Comment, type Project, type SystemSettings } from '@/lib/api'
+import { useAuth } from '@/lib/auth-context'
+import { formatDateWithSettings } from '@/lib/system-settings-context'
 import { Badge } from '@/components/ui/badge'
 import { Search, Plus, X, ArrowLeft, AlertCircle, Clock, CheckCircle2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -12,21 +14,6 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useForm } from 'react-hook-form'
-
-interface Bug {
-  id: string
-  title: string
-  description: string
-  status: 'open' | 'in-progress' | 'resolved' | 'closed'
-  priority: 'low' | 'medium' | 'high' | 'critical'
-  severity: 'minor' | 'major' | 'critical'
-  projectId: string
-  assignedTo?: string
-  reportedBy: string
-  createdAt: Date
-  updatedAt: Date
-  verifiedAt?: Date
-}
 
 interface NewBugFormData {
   title: string
@@ -37,23 +24,76 @@ interface NewBugFormData {
   assignedTo?: string
 }
 
-export function BugsList() {
+interface BugsListProps {
+  initialSelectedBugId?: string | null
+  onNotificationTargetHandled?: () => void
+}
+
+export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: BugsListProps) {
+  const { user } = useAuth()
+  const bugDefaults: Pick<SystemSettings, 'default_bug_priority' | 'default_bug_severity'> = {
+    default_bug_priority: 'medium',
+    default_bug_severity: 'major',
+  }
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedBug, setSelectedBug] = useState<Bug | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [isNewBugDialogOpen, setIsNewBugDialogOpen] = useState(false)
-  const [bugs, setBugs] = useState(mockBugs)
+  const [bugs, setBugs] = useState<Bug[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [comments, setComments] = useState<Comment[]>([])
+  const [newComment, setNewComment] = useState('')
+  const [defaults, setDefaults] = useState(bugDefaults)
 
   const form = useForm<NewBugFormData>({
     defaultValues: {
       title: '',
       description: '',
-      priority: 'medium',
-      severity: 'minor',
-      projectId: mockProjects[0]?.id || '',
+      priority: bugDefaults.default_bug_priority,
+      severity: bugDefaults.default_bug_severity,
+      projectId: '',
       assignedTo: '',
     },
   })
+
+  useEffect(() => {
+    Promise.all([api.getBugs(), api.getProjects(), api.getSystemSettings().catch(() => ({ settings: bugDefaults as Partial<SystemSettings> }))])
+      .then(([bugsData, projectsData, settingsData]) => {
+        setBugs(bugsData)
+        setProjects(projectsData)
+        const nextDefaults = {
+          default_bug_priority: settingsData.settings.default_bug_priority || bugDefaults.default_bug_priority,
+          default_bug_severity: settingsData.settings.default_bug_severity || bugDefaults.default_bug_severity,
+        }
+        setDefaults(nextDefaults)
+        form.setValue('priority', nextDefaults.default_bug_priority)
+        form.setValue('severity', nextDefaults.default_bug_severity)
+        if (projectsData[0]) {
+          form.setValue('projectId', projectsData[0].id)
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load bugs'))
+      .finally(() => setLoading(false))
+  }, [form])
+
+  useEffect(() => {
+    if (!selectedBug) {
+      setComments([])
+      return
+    }
+    api.getComments(selectedBug.id).then(setComments).catch(() => setComments([]))
+  }, [selectedBug])
+
+  useEffect(() => {
+    if (!initialSelectedBugId || bugs.length === 0) return
+    const matchingBug = bugs.find((bug) => bug.id === initialSelectedBugId)
+    if (matchingBug) {
+      setSelectedBug(matchingBug)
+      onNotificationTargetHandled?.()
+    }
+  }, [bugs, initialSelectedBugId, onNotificationTargetHandled])
 
   const filteredBugs = bugs.filter((bug) => {
     const matchesSearch = bug.title.toLowerCase().includes(searchTerm.toLowerCase())
@@ -76,24 +116,22 @@ export function BugsList() {
     }
   }
 
-  const onSubmitNewBug = (data: NewBugFormData) => {
-    const newBug: Bug = {
-      id: `bug-${Date.now()}`,
-      title: data.title,
-      description: data.description,
-      status: 'open',
-      priority: data.priority,
-      severity: data.severity,
-      projectId: data.projectId,
-      assignedTo: data.assignedTo || undefined,
-      reportedBy: 'current-user@blockbug.dev', // In a real app, this would come from auth context
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-
+  const onSubmitNewBug = async (data: NewBugFormData) => {
+    const newBug = await api.createBug({
+      ...data,
+      reportedBy: user?.email || 'unknown@blockbug.dev',
+    })
     setBugs(prev => [newBug, ...prev])
+    window.dispatchEvent(new Event('blockbug:notifications-updated'))
     setIsNewBugDialogOpen(false)
-    form.reset()
+    form.reset({
+      title: '',
+      description: '',
+      priority: defaults.default_bug_priority,
+      severity: defaults.default_bug_severity,
+      projectId: projects[0]?.id || '',
+      assignedTo: '',
+    })
   }
 
   const getPriorityColor = (priority: string) => {
@@ -111,8 +149,35 @@ export function BugsList() {
     }
   }
 
+  const closeSelectedBug = async () => {
+    if (!selectedBug) return
+    const updatedBug = await api.updateBug(selectedBug.id, {
+      status: 'closed',
+      userEmail: user?.email,
+      userName: user?.name,
+    })
+    setSelectedBug(updatedBug)
+    setBugs(prev => prev.map(bug => bug.id === updatedBug.id ? updatedBug : bug))
+    window.dispatchEvent(new Event('blockbug:notifications-updated'))
+  }
+
+  const submitComment = async () => {
+    if (!selectedBug || !newComment.trim()) return
+    const comment = await api.createComment(selectedBug.id, {
+      comment: newComment,
+      userEmail: user?.email || 'unknown@blockbug.dev',
+      userName: user?.name || 'Unknown User',
+    })
+    setComments(prev => [comment, ...prev])
+    setNewComment('')
+    window.dispatchEvent(new Event('blockbug:notifications-updated'))
+  }
+
   return (
     <div className="p-8 space-y-6">
+      {error && (
+        <Card className="p-4 border border-destructive text-destructive">{error}</Card>
+      )}
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-bold text-foreground">Bug Reports</h2>
@@ -230,7 +295,7 @@ export function BugsList() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {mockProjects.map((project) => (
+                          {projects.map((project) => (
                             <SelectItem key={project.id} value={project.id}>
                               {project.name}
                             </SelectItem>
@@ -303,7 +368,9 @@ export function BugsList() {
       )}
 
       {/* Bugs List or Detail */}
-      {selectedBug ? (
+      {loading ? (
+        <Card className="p-8 border border-border text-muted-foreground">Loading bug reports...</Card>
+      ) : selectedBug ? (
         <Card className="p-8 border border-border">
           <button
             onClick={() => setSelectedBug(null)}
@@ -318,7 +385,7 @@ export function BugsList() {
               <h3 className="text-3xl font-bold text-foreground">{selectedBug.title}</h3>
               <p className="text-muted-foreground mt-1">Bug #{selectedBug.id.substring(0, 8)}</p>
             </div>
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button variant="outline" size="sm" className="gap-2" onClick={closeSelectedBug}>
               <X className="w-4 h-4" />
               Close
             </Button>
@@ -344,7 +411,7 @@ export function BugsList() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground uppercase mb-2 font-semibold">Created</p>
-                <p className="text-foreground font-medium">{selectedBug.createdAt.toLocaleDateString()}</p>
+                <p className="text-foreground font-medium">{formatDateWithSettings(selectedBug.createdAt, defaults)}</p>
               </div>
             </div>
           </div>
@@ -353,19 +420,30 @@ export function BugsList() {
             <div>
               <p className="text-sm font-semibold text-foreground mb-3">Description</p>
               <p className="text-foreground leading-relaxed">
-                Bug details and description would appear here with full information about the issue, steps to reproduce, and expected behavior.
+                {selectedBug.description}
               </p>
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground mb-3">Comments (3)</p>
+              <p className="text-sm font-semibold text-foreground mb-3">Comments ({comments.length})</p>
+              <div className="mb-4 space-y-3">
+                <Textarea
+                  placeholder="Add a comment..."
+                  value={newComment}
+                  onChange={(event) => setNewComment(event.target.value)}
+                />
+                <Button type="button" size="sm" onClick={submitComment}>Add Comment</Button>
+              </div>
               <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="border-l-2 border-primary pl-4">
-                    <p className="text-sm font-medium text-foreground">Team Member</p>
-                    <p className="text-xs text-muted-foreground mb-1">2 hours ago</p>
-                    <p className="text-sm text-foreground">Comment text goes here...</p>
+                {comments.map((comment) => (
+                  <div key={comment.id} className="border-l-2 border-primary pl-4">
+                    <p className="text-sm font-medium text-foreground">{comment.userName}</p>
+                    <p className="text-xs text-muted-foreground mb-1">{formatDateWithSettings(comment.createdAt, defaults, true)}</p>
+                    <p className="text-sm text-foreground">{comment.comment}</p>
                   </div>
                 ))}
+                {comments.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No comments yet.</p>
+                )}
               </div>
             </div>
           </div>
@@ -403,7 +481,7 @@ export function BugsList() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">{bug.assignedTo || '—'}</td>
-                      <td className="px-6 py-4 text-muted-foreground text-sm">{bug.createdAt.toLocaleDateString()}</td>
+                      <td className="px-6 py-4 text-muted-foreground text-sm">{formatDateWithSettings(bug.createdAt, defaults)}</td>
                     </tr>
                   ))
                 ) : (

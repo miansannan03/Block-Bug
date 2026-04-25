@@ -1,31 +1,109 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import { User } from '@/lib/auth-context'
-import { Button } from '@/components/ui/button'
+import { api, type Notification } from '@/lib/api'
+import { formatDateWithSettings, useSystemSettings } from '@/lib/system-settings-context'
 import { LogOut, Bell, Settings, HelpCircle, User as UserIcon } from 'lucide-react'
-import { useState } from 'react'
 
 interface HeaderProps {
   user: User | null
   onLogout: () => void
   onNavigateToPage: (page: string) => void
+  onOpenNotification: (notification: Notification) => void
 }
 
-export function Header({ user, onLogout, onNavigateToPage }: HeaderProps) {
+export function Header({ user, onLogout, onNavigateToPage, onOpenNotification }: HeaderProps) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const notificationsRef = useRef<HTMLDivElement | null>(null)
+  const userMenuRef = useRef<HTMLDivElement | null>(null)
+  const { settings } = useSystemSettings()
+
+  const refreshNotifications = async () => {
+    if (!user) return
+    try {
+      const nextNotifications = await api.getNotifications(user.email)
+      setNotifications(nextNotifications.filter((notification) => notification.type !== 'preferences_updated'))
+    } catch {
+      setNotifications([])
+    }
+  }
+
+  useEffect(() => {
+    if (!user) return
+    void refreshNotifications()
+  }, [user])
+
+  useEffect(() => {
+    if (showNotifications) {
+      void refreshNotifications()
+    }
+  }, [showNotifications])
+
+  useEffect(() => {
+    if (!user) return
+
+    const intervalId = window.setInterval(() => {
+      void refreshNotifications()
+    }, 10000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [user])
+
+  useEffect(() => {
+    function handleNotificationsUpdated() {
+      void refreshNotifications()
+    }
+
+    window.addEventListener('blockbug:notifications-updated', handleNotificationsUpdated)
+    return () => {
+      window.removeEventListener('blockbug:notifications-updated', handleNotificationsUpdated)
+    }
+  }, [user])
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node
+
+      if (showNotifications && notificationsRef.current && !notificationsRef.current.contains(target)) {
+        setShowNotifications(false)
+      }
+
+      if (showUserMenu && userMenuRef.current && !userMenuRef.current.contains(target)) {
+        setShowUserMenu(false)
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setShowNotifications(false)
+        setShowUserMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [showNotifications, showUserMenu])
 
   return (
     <header className="bg-card border-b border-border px-8 py-4 flex justify-between items-center">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">Welcome back! 👋</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Welcome back, {user?.name || 'team member'}</p>
       </div>
 
       {user && (
         <div className="flex items-center gap-4">
-          {/* Notifications */}
-          <div className="relative">
+          <div className="relative" ref={notificationsRef}>
             <button
               onClick={() => {
                 setShowNotifications(!showNotifications)
@@ -34,7 +112,9 @@ export function Header({ user, onLogout, onNavigateToPage }: HeaderProps) {
               className="relative p-2 hover:bg-muted rounded-lg transition"
             >
               <Bell className="w-5 h-5 text-foreground" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+              {notifications.some((notification) => !notification.isRead) && (
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+              )}
             </button>
 
             {showNotifications && (
@@ -43,26 +123,38 @@ export function Header({ user, onLogout, onNavigateToPage }: HeaderProps) {
                   <h3 className="font-semibold text-foreground">Notifications</h3>
                 </div>
                 <div className="max-h-80 overflow-y-auto">
-                  {[
-                    { title: 'Bug #123 assigned to you', time: '5 min ago', icon: '🐛' },
-                    { title: 'Sarah approved your comment', time: '1 hour ago', icon: '✓' },
-                    { title: 'New bug reported in Mobile App', time: '2 hours ago', icon: '📱' },
-                  ].map((notif, i) => (
+                  {notifications.map((notification) => (
                     <button
-                      key={i}
+                      key={notification.id}
+                      onClick={() => {
+                        onOpenNotification(notification)
+                        setShowNotifications(false)
+                      }}
                       className="w-full text-left px-4 py-3 hover:bg-muted/50 border-b border-border/50 last:border-0 transition"
                     >
-                      <p className="text-sm font-medium text-foreground">{notif.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{notif.time}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground">{notification.title}</p>
+                          {notification.body && (
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">{notification.body}</p>
+                          )}
+                        </div>
+                        {!notification.isRead && (
+                          <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-2">{formatDateWithSettings(notification.createdAt, settings, true)}</p>
                     </button>
                   ))}
+                  {notifications.length === 0 && (
+                    <div className="px-4 py-6 text-sm text-muted-foreground">No notifications yet.</div>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {/* User Menu */}
-          <div className="relative">
+          <div className="relative" ref={userMenuRef}>
             <button
               onClick={() => {
                 setShowUserMenu(!showUserMenu)
@@ -84,7 +176,7 @@ export function Header({ user, onLogout, onNavigateToPage }: HeaderProps) {
                 <div className="p-4 border-b border-border">
                   <p className="text-sm font-medium text-foreground">{user.name}</p>
                   <p className="text-xs text-muted-foreground capitalize mt-0.5">{user.role}</p>
-                  <p className="text-xs text-muted-foreground mt-2">demo@blockbug.com</p>
+                  <p className="text-xs text-muted-foreground mt-2">{user.email}</p>
                 </div>
                 <div className="p-2 space-y-1">
                   <button
@@ -107,9 +199,7 @@ export function Header({ user, onLogout, onNavigateToPage }: HeaderProps) {
                     <Settings className="w-4 h-4" />
                     Settings
                   </button>
-                  <button
-                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted rounded transition"
-                  >
+                  <button className="w-full flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted rounded transition">
                     <HelpCircle className="w-4 h-4" />
                     Help
                   </button>

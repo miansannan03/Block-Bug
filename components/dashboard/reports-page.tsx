@@ -1,19 +1,26 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
-import { mockBugs, mockProjects } from '@/lib/mock-data'
+import { api, type ReportData } from '@/lib/api'
 import HighchartsReact from 'highcharts-react-official'
 import Highcharts from 'highcharts'
 
 export function ReportsPage() {
-  // Priority breakdown
-  const priorityBugCounts = mockBugs.reduce(
-    (acc, bug) => {
-      acc[bug.priority] = (acc[bug.priority] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>
-  )
+  const [report, setReport] = useState<ReportData>({
+    priorities: { critical: 0, high: 0, medium: 0, low: 0 },
+    summary: { totalBugs: 0, activeProjects: 0, totalProjects: 0, avgBugsPerProject: 0 },
+    resolutionTimes: [],
+  })
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api.getReports()
+      .then(setReport)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load reports'))
+  }, [])
+
+  const priorityBugCounts = report.priorities
 
   // Resolution time chart options
   const resolutionChartOptions: Highcharts.Options = {
@@ -31,7 +38,7 @@ export function ReportsPage() {
       text: undefined,
     },
     xAxis: {
-      categories: ['Mobile App', 'Web Platform', 'API Services'],
+      categories: report.resolutionTimes.map((item) => item.name),
       lineColor: '#e5e7eb',
       crosshair: true,
       labels: {
@@ -71,7 +78,7 @@ export function ReportsPage() {
       {
         type: 'bar',
         name: 'Avg Resolution Time',
-        data: [4.2, 3.8, 5.1],
+        data: report.resolutionTimes.map((item) => item.days),
         color: '#7c3aed',
       },
     ],
@@ -204,6 +211,9 @@ export function ReportsPage() {
 
   return (
     <div className="p-8 space-y-8">
+      {error && (
+        <Card className="p-4 border border-destructive text-destructive">{error}</Card>
+      )}
       <div>
         <h2 className="text-2xl font-bold text-foreground">Analytics & Reports</h2>
         <p className="text-muted-foreground">Detailed insights and metrics</p>
@@ -225,15 +235,15 @@ export function ReportsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-muted p-4 rounded-lg">
               <p className="text-sm text-muted-foreground mb-2">Total Bug Reports</p>
-              <p className="text-3xl font-bold text-foreground">{mockBugs.length}</p>
+              <p className="text-3xl font-bold text-foreground">{report.summary.totalBugs}</p>
             </div>
             <div className="bg-muted p-4 rounded-lg">
               <p className="text-sm text-muted-foreground mb-2">Active Projects</p>
-              <p className="text-3xl font-bold text-foreground">{mockProjects.filter(p => p.status === 'active').length}</p>
+              <p className="text-3xl font-bold text-foreground">{report.summary.activeProjects}</p>
             </div>
             <div className="bg-muted p-4 rounded-lg">
               <p className="text-sm text-muted-foreground mb-2">Avg Bugs per Project</p>
-              <p className="text-3xl font-bold text-foreground">{(mockBugs.length / mockProjects.length).toFixed(1)}</p>
+              <p className="text-3xl font-bold text-foreground">{report.summary.avgBugsPerProject.toFixed(1)}</p>
             </div>
           </div>
         </Card>
