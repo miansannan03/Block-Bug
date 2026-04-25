@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
+import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
@@ -18,10 +19,15 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const { signup } = useAuth()
+  const { settings } = useSystemSettings()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    if (!settings.allow_signup) {
+      setError('Public signup is currently disabled. Ask an administrator to create your account.')
+      return
+    }
     setLoading(true)
 
     try {
@@ -40,14 +46,18 @@ export default function SignupPage() {
         {/* Logo */}
         <div className="flex items-center gap-2 mb-8 justify-center">
           <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-lg">B</span>
+            <span className="text-primary-foreground font-bold text-lg">{getAppInitial(settings.app_name)}</span>
           </div>
-          <span className="font-bold text-xl text-foreground">BlockBug</span>
+          <span className="font-bold text-xl text-foreground">{settings.app_name}</span>
         </div>
 
         <Card className="p-8 border border-border">
           <h1 className="text-2xl font-bold mb-2">Create Account</h1>
-          <p className="text-muted-foreground mb-6">Start tracking bugs more effectively. New accounts are created as tester roles by default.</p>
+          <p className="text-muted-foreground mb-6">
+            {settings.allow_signup
+              ? 'Start tracking bugs more effectively. New accounts are created as tester roles by default.'
+              : 'Public signup is currently disabled. Ask an administrator to create your account.'}
+          </p>
 
           {error && (
             <Alert variant="destructive" className="mb-6">
@@ -65,6 +75,7 @@ export default function SignupPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
+                disabled={!settings.allow_signup}
               />
             </div>
             <div>
@@ -75,6 +86,7 @@ export default function SignupPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={!settings.allow_signup}
               />
             </div>
             <div>
@@ -85,10 +97,11 @@ export default function SignupPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                disabled={!settings.allow_signup}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Creating account...' : 'Sign Up'}
+            <Button type="submit" className="w-full" disabled={loading || !settings.allow_signup}>
+              {settings.allow_signup ? (loading ? 'Creating account...' : 'Sign Up') : 'Signup Disabled'}
             </Button>
           </form>
 

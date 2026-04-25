@@ -1,15 +1,39 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
-import { getBugStats, mockActivities, mockBugs } from '@/lib/mock-data'
-import { AlertCircle, CheckCircle2, Clock, TrendingUp } from 'lucide-react'
+import { api, type Activity, type BugStats, type DashboardData } from '@/lib/api'
+import { AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import HighchartsReact from 'highcharts-react-official'
 import Highcharts from 'highcharts'
 
-export function DashboardOverview() {
-  const stats = getBugStats()
+interface DashboardOverviewProps {
+  onNavigateToPage: (page: string) => void
+}
 
-  const recentActivity = mockActivities.slice(0, 5)
+export function DashboardOverview({ onNavigateToPage }: DashboardOverviewProps) {
+  const [stats, setStats] = useState<BugStats>({
+    total: 0,
+    open: 0,
+    inProgress: 0,
+    resolved: 0,
+    closed: 0,
+    critical: 0,
+    high: 0,
+  })
+  const [recentActivity, setRecentActivity] = useState<Activity[]>([])
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    Promise.all([api.getStats(), api.getActivities(), api.getDashboard()])
+      .then(([statsData, activitiesData, dashboardData]) => {
+        setStats(statsData)
+        setRecentActivity(activitiesData.slice(0, 5))
+        setDashboard(dashboardData)
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load dashboard data'))
+  }, [])
 
   // Line chart options for bugs reported
   const lineChartOptions: Highcharts.Options = {
@@ -27,7 +51,7 @@ export function DashboardOverview() {
       text: undefined,
     },
     xAxis: {
-      categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      categories: dashboard?.weeklyBugs.categories || [],
       lineColor: '#e5e7eb',
       crosshair: true,
       labels: {
@@ -66,7 +90,7 @@ export function DashboardOverview() {
     series: [
       {
         name: 'Bugs Reported',
-        data: [4, 3, 5, 2, 6, 1, 3],
+        data: dashboard?.weeklyBugs.data || [],
         type: 'line',
         color: '#7c3aed',
         lineWidth: 3,
@@ -98,7 +122,6 @@ export function DashboardOverview() {
       },
       headerFormat: '<b>{point.key}</b><br/>',
       pointFormat: '{series.name}: <b>{point.y}</b> bugs',
-      crosshairs: [true],
     },
     credits: {
       enabled: false,
@@ -194,6 +217,9 @@ export function DashboardOverview() {
 
   return (
     <div className="p-8 space-y-8">
+      {error && (
+        <Card className="p-4 border border-destructive text-destructive">{error}</Card>
+      )}
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="p-6 border border-border hover:border-primary hover:shadow-lg transition group">
@@ -201,7 +227,9 @@ export function DashboardOverview() {
             <div>
               <p className="text-sm text-muted-foreground">Total Bugs</p>
               <p className="text-3xl font-bold text-foreground mt-2">{stats.total}</p>
-              <p className="text-xs text-green-600 mt-2">+12% from last week</p>
+              <p className={`text-xs mt-2 ${(dashboard?.weekDelta.percent || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {dashboard ? `${dashboard.weekDelta.percent >= 0 ? '+' : ''}${dashboard.weekDelta.percent}% from last week` : 'Loading trend'}
+              </p>
             </div>
             <div className="w-12 h-12 bg-red-500/10 rounded-lg flex items-center justify-center group-hover:bg-red-500/20 transition">
               <AlertCircle className="w-6 h-6 text-red-500" />
@@ -301,25 +329,25 @@ export function DashboardOverview() {
         <Card className="p-6 border border-border">
           <h3 className="text-lg font-semibold mb-4 text-foreground">Quick Actions</h3>
           <div className="space-y-3">
-            <button className="w-full px-4 py-3 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition font-medium text-sm text-left">
-              + New Bug Report
+            <button onClick={() => onNavigateToPage('bugs')} className="w-full px-4 py-3 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition font-medium text-sm text-left">
+              New bug report ({dashboard?.quickActions.openBugs ?? 0} open)
             </button>
-            <button className="w-full px-4 py-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 rounded-lg transition font-medium text-sm text-left">
-              📊 View Analytics
+            <button onClick={() => onNavigateToPage('reports')} className="w-full px-4 py-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 rounded-lg transition font-medium text-sm text-left">
+              View analytics ({dashboard?.quickActions.analyticsReports ?? 0} reports)
             </button>
-            <button className="w-full px-4 py-3 bg-green-500/10 hover:bg-green-500/20 text-green-600 rounded-lg transition font-medium text-sm text-left">
-              ✓ Approve Changes
+            <button onClick={() => onNavigateToPage('bugs')} className="w-full px-4 py-3 bg-green-500/10 hover:bg-green-500/20 text-green-600 rounded-lg transition font-medium text-sm text-left">
+              Verify fixes ({dashboard?.quickActions.pendingVerification ?? 0} pending)
             </button>
-            <button className="w-full px-4 py-3 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 rounded-lg transition font-medium text-sm text-left">
-              👥 Manage Team
+            <button onClick={() => onNavigateToPage('team')} className="w-full px-4 py-3 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 rounded-lg transition font-medium text-sm text-left">
+              Manage team ({dashboard?.quickActions.teamMembers ?? 0} active)
             </button>
             <div className="pt-3 mt-3 border-t border-border">
-              <p className="text-xs text-muted-foreground mb-2">Team Members Online</p>
+              <p className="text-xs text-muted-foreground mb-2">Active Team Members</p>
               <div className="flex gap-2">
-                {['Sarah', 'Mike', 'Emma'].map((name) => (
-                  <div key={name} className="flex items-center gap-1">
+                {(dashboard?.activeUsers || []).map((member) => (
+                  <div key={member.id} className="flex items-center gap-1" title={member.name}>
                     <div className="w-6 h-6 bg-primary/20 rounded-full flex items-center justify-center text-xs font-semibold text-primary">
-                      {name[0]}
+                      {member.name[0]}
                     </div>
                   </div>
                 ))}

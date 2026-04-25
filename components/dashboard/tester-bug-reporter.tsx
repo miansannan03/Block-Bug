@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { mockBugs, mockProjects, type Bug } from '@/lib/mock-data'
+import { api, type Bug, type Project, type SystemSettings } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Bug, CheckCircle2, AlertTriangle, XCircle, Clock } from 'lucide-react'
+import { Plus, Bug as BugIcon, CheckCircle2, AlertTriangle, XCircle, Clock } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { useForm } from 'react-hook-form'
 import { useAuth } from '@/lib/auth-context'
+import { formatDateWithSettings } from '@/lib/system-settings-context'
 
 interface NewBugFormData {
   title: string
@@ -27,23 +28,51 @@ interface NewBugFormData {
 }
 
 export function TesterBugReporter() {
+  const bugDefaults: Pick<SystemSettings, 'default_bug_priority' | 'default_bug_severity'> = {
+    default_bug_priority: 'medium',
+    default_bug_severity: 'major',
+  }
   const [isNewBugDialogOpen, setIsNewBugDialogOpen] = useState(false)
-  const [bugs, setBugs] = useState(mockBugs)
+  const [bugs, setBugs] = useState<Bug[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [defaults, setDefaults] = useState(bugDefaults)
   const { user } = useAuth()
 
   const form = useForm<NewBugFormData>({
     defaultValues: {
       title: '',
       description: '',
-      priority: 'medium',
-      severity: 'minor',
-      projectId: mockProjects[0]?.id || '',
+      priority: bugDefaults.default_bug_priority,
+      severity: bugDefaults.default_bug_severity,
+      projectId: '',
       stepsToReproduce: '',
       expectedResult: '',
       actualResult: '',
       environment: '',
     },
   })
+
+  useEffect(() => {
+    Promise.all([api.getBugs(user?.email), api.getProjects(), api.getSystemSettings().catch(() => ({ settings: bugDefaults as Partial<SystemSettings> }))])
+      .then(([bugsData, projectsData, settingsData]) => {
+        setBugs(bugsData)
+        setProjects(projectsData)
+        const nextDefaults = {
+          default_bug_priority: settingsData.settings.default_bug_priority || bugDefaults.default_bug_priority,
+          default_bug_severity: settingsData.settings.default_bug_severity || bugDefaults.default_bug_severity,
+        }
+        setDefaults(nextDefaults)
+        form.setValue('priority', nextDefaults.default_bug_priority)
+        form.setValue('severity', nextDefaults.default_bug_severity)
+        if (projectsData[0]) {
+          form.setValue('projectId', projectsData[0].id)
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load your bug reports'))
+      .finally(() => setLoading(false))
+  }, [form, user?.email])
 
   const myReportedBugs = bugs.filter(bug => bug.reportedBy === user?.email)
 
@@ -58,7 +87,7 @@ export function TesterBugReporter() {
       case 'closed':
         return <XCircle className="w-4 h-4 text-gray-500" />
       default:
-        return <Bug className="w-4 h-4 text-gray-500" />
+        return <BugIcon className="w-4 h-4 text-gray-500" />
     }
   }
 
@@ -77,23 +106,25 @@ export function TesterBugReporter() {
     }
   }
 
-  const onSubmitNewBug = (data: NewBugFormData) => {
-    const newBug: Bug = {
-      id: `bug-${Date.now()}`,
-      title: data.title,
-      description: data.description,
-      status: 'open',
-      priority: data.priority,
-      severity: data.severity,
-      projectId: data.projectId,
-      reportedBy: user?.email || 'unknown',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-
+  const onSubmitNewBug = async (data: NewBugFormData) => {
+    const newBug = await api.createBug({
+      ...data,
+      reportedBy: user?.email || 'unknown@blockbug.dev',
+    })
     setBugs(prev => [newBug, ...prev])
+    window.dispatchEvent(new Event('blockbug:notifications-updated'))
     setIsNewBugDialogOpen(false)
-    form.reset()
+    form.reset({
+      title: '',
+      description: '',
+      priority: defaults.default_bug_priority,
+      severity: defaults.default_bug_severity,
+      projectId: projects[0]?.id || '',
+      stepsToReproduce: '',
+      expectedResult: '',
+      actualResult: '',
+      environment: '',
+    })
   }
 
   const stats = {
@@ -104,6 +135,9 @@ export function TesterBugReporter() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
+      {error && (
+        <Card className="p-4 border border-destructive text-destructive">{error}</Card>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -153,7 +187,7 @@ export function TesterBugReporter() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {mockProjects.map((project) => (
+                            {projects.map((project) => (
                               <SelectItem key={project.id} value={project.id}>
                                 {project.name}
                               </SelectItem>
@@ -328,7 +362,7 @@ export function TesterBugReporter() {
         <Card className="p-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 rounded-lg">
-              <Bug className="w-6 h-6 text-blue-600" />
+              <BugIcon className="w-6 h-6 text-blue-600" />
             </div>
             <div>
               <p className="text-2xl font-bold">{stats.totalReported}</p>
@@ -366,9 +400,11 @@ export function TesterBugReporter() {
       <Card className="p-6">
         <h2 className="text-xl font-semibold mb-4">My Bug Reports</h2>
         <div className="space-y-4">
-          {myReportedBugs.length === 0 ? (
+          {loading ? (
+            <div className="text-center py-8 text-muted-foreground">Loading your reports...</div>
+          ) : myReportedBugs.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              <Bug className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <BugIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p>You haven't reported any bugs yet.</p>
               <p className="text-sm">Click "Report New Bug" to get started!</p>
             </div>
@@ -387,7 +423,7 @@ export function TesterBugReporter() {
                         {bug.severity}
                       </Badge>
                       <span className="text-sm text-muted-foreground">
-                        {bug.createdAt.toLocaleDateString()}
+                        {formatDateWithSettings(bug.createdAt, defaults)}
                       </span>
                     </div>
                   </div>

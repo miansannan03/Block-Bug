@@ -2,18 +2,21 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { BarChart3, Bug, FileText, FolderOpen, Settings, Home, Moon, Sun, HelpCircle } from 'lucide-react'
+import { BarChart3, Bug, FolderOpen, Settings, Home, Moon, Sun, HelpCircle, Users, Plug } from 'lucide-react'
+import type { UserRole } from '@/lib/api'
+import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
 import { useTheme } from 'next-themes'
 
 interface SidebarProps {
   currentPage: string
   onPageChange: (page: any) => void
-  userRole?: string
+  userRole?: UserRole
 }
 
 export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
   const [mounted, setMounted] = useState(false)
   const { resolvedTheme, setTheme } = useTheme()
+  const { settings } = useSystemSettings()
 
   useEffect(() => {
     setMounted(true)
@@ -30,12 +33,23 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
       ]
     }
 
-    return [
+    const baseItems = [
       { id: 'overview', label: 'Overview', icon: Home },
       { id: 'bugs', label: 'Bug Reports', icon: Bug },
       { id: 'reports', label: 'Analytics', icon: BarChart3 },
       { id: 'projects', label: 'Projects', icon: FolderOpen },
+      { id: 'team', label: 'Team', icon: Users },
       { id: 'settings', label: 'Settings', icon: Settings },
+    ]
+
+    if (userRole === 'admin') {
+      return baseItems
+    }
+
+    return [
+      ...baseItems.slice(0, 5),
+      { id: 'integrations', label: 'Integrations', icon: Plug },
+      baseItems[5],
     ]
   }
 
@@ -47,10 +61,10 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
       <div className="p-6 border-b border-sidebar-border">
         <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition">
           <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center shadow-lg">
-            <span className="text-sidebar-primary-foreground font-bold text-lg">B</span>
+            <span className="text-sidebar-primary-foreground font-bold text-lg">{getAppInitial(settings.app_name)}</span>
           </div>
           <div>
-            <span className="font-bold text-lg text-sidebar-foreground block">BlockBug</span>
+            <span className="font-bold text-lg text-sidebar-foreground block">{settings.app_name}</span>
             <span className="text-xs text-muted-foreground">Team Edition</span>
           </div>
         </Link>
@@ -94,7 +108,7 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
         </button>
         
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>BlockBug v1.0</span>
+          <span>{settings.app_name} v1.0</span>
           <button className="hover:text-primary transition">
             <HelpCircle className="w-4 h-4" />
           </button>

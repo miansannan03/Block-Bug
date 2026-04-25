@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
+import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
@@ -16,7 +17,8 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const { login, availableUsers } = useAuth()
+  const { login } = useAuth()
+  const { settings } = useSystemSettings()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,9 +41,9 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="flex items-center gap-2 mb-8 justify-center">
           <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-lg">B</span>
+            <span className="text-primary-foreground font-bold text-lg">{getAppInitial(settings.app_name)}</span>
           </div>
-          <span className="font-bold text-xl text-foreground">BlockBug</span>
+          <span className="font-bold text-xl text-foreground">{settings.app_name}</span>
         </div>
 
         <Card className="p-8 border border-border">
@@ -55,24 +57,12 @@ export default function LoginPage() {
             </Alert>
           )}
 
-          {/* Demo Credentials */}
-          <div className="bg-muted p-4 rounded-lg mb-6 text-sm">
-            <p className="font-semibold text-foreground mb-2">Demo Credentials:</p>
-            <ul className="space-y-1 text-muted-foreground">
-              {availableUsers.map((demoUser) => (
-                <li key={demoUser.email}>
-                  • {demoUser.email} / demo123 ({demoUser.role.charAt(0).toUpperCase() + demoUser.role.slice(1)})
-                </li>
-              ))}
-            </ul>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-2">Email</label>
               <Input
                 type="email"
-                placeholder="admin@blockbug.dev"
+                placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -82,7 +72,7 @@ export default function LoginPage() {
               <label className="block text-sm font-medium mb-2">Password</label>
               <Input
                 type="password"
-                placeholder="demo123"
+                placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -93,17 +83,20 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{' '}
-            <Link href="/signup" className="text-primary hover:underline font-medium">
-              Sign up
-            </Link>
-          </div>
+          {settings.allow_signup ? (
+            <div className="mt-6 text-center text-sm text-muted-foreground">
+              Don&apos;t have an account?{' '}
+              <Link href="/signup" className="text-primary hover:underline font-medium">
+                Sign up
+              </Link>
+            </div>
+          ) : (
+            <div className="mt-6 text-center text-sm text-muted-foreground">
+              New accounts are created by an administrator.
+            </div>
+          )}
         </Card>
 
-        <p className="text-center text-xs text-muted-foreground mt-6">
-          This is a demo application
-        </p>
       </div>
     </div>
   )

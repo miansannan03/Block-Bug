@@ -1,8 +1,10 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect } from 'react'
+import { api, type User, type UserRole } from '@/lib/api'
+import { useSystemSettings } from '@/lib/system-settings-context'
 
-export type UserRole = 'admin' | 'manager' | 'developer' | 'tester'
+export type { User, UserRole }
 
 export interface RoleDefinition {
   label: string
@@ -13,53 +15,40 @@ export interface RoleDefinition {
 export const ROLE_DEFINITIONS: Record<UserRole, RoleDefinition> = {
   admin: {
     label: 'Administrator',
-    description: 'Full system access, user management, and configuration control.',
+    description: 'Full system access with user management and settings control.',
     permissions: [
-      'manage-users',
-      'view-all-reports',
-      'edit-projects',
-      'assign-bugs',
-      'configure-settings',
+      'Full system access',
+      'Manage users',
+      'Configure settings',
     ],
   },
   manager: {
     label: 'Manager',
-    description: 'Oversees bug pipelines, assigns work, and tracks team progress.',
+    description: 'Reviews bug pipelines, assigns work, and monitors reporting.',
     permissions: [
-      'view-reports',
-      'assign-bugs',
-      'review-bug-status',
-      'approve-resolutions',
+      'Review pipelines',
+      'Assign bugs',
+      'View reports',
     ],
   },
   developer: {
     label: 'Developer',
-    description: 'Fixes bugs, comments on reports, and updates status through the workflow.',
+    description: 'Fixes assigned bugs and keeps reports updated through the workflow.',
     permissions: [
-      'view-assigned-bugs',
-      'comment-on-bugs',
-      'change-bug-status',
-      'update-resolution-details',
+      'Fix bugs',
+      'Comment on bug reports',
+      'Update bug status',
     ],
   },
   tester: {
     label: 'Tester',
-    description: 'Reports bugs, verifies fixes, and tracks bug resolution status.',
+    description: 'Reports bugs, tracks submitted reports, and verifies completed fixes.',
     permissions: [
-      'create-bug-report',
-      'view-my-bug-reports',
-      'add-bug-comments',
-      'verify-fixes',
+      'Report bugs',
+      'Track their reports',
+      'Verify fixes',
     ],
   },
-}
-
-export interface User {
-  id: string
-  name: string
-  email: string
-  role: UserRole
-  avatar?: string
 }
 
 interface AuthContextType {
@@ -67,6 +56,7 @@ interface AuthContextType {
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
   signup: (name: string, email: string, password: string) => Promise<void>
+  updateProfile: (name: string) => Promise<void>
   logout: () => void
   isAuthenticated: boolean
   availableUsers: User[]
@@ -74,18 +64,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-type StoredUser = User & { password: string }
-
-const MOCK_USERS: StoredUser[] = [
-  { id: '1', name: 'Alex Chen', email: 'alex@blockbug.dev', password: 'demo123', role: 'admin' },
-  { id: '2', name: 'Nina Park', email: 'nina@blockbug.dev', password: 'demo123', role: 'manager' },
-  { id: '3', name: 'Sarah Dev', email: 'sarah@blockbug.dev', password: 'demo123', role: 'developer' },
-  { id: '4', name: 'Mike Tester', email: 'mike@blockbug.dev', password: 'demo123', role: 'tester' },
-]
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [availableUsers, setAvailableUsers] = useState<User[]>([])
+  const { settings } = useSystemSettings()
 
   useEffect(() => {
     const stored = localStorage.getItem('blockbug_user')
@@ -96,44 +79,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('blockbug_user')
       }
     }
+
+    api.getUsers()
+      .then(setAvailableUsers)
+      .catch(() => setAvailableUsers([]))
+
     setIsLoading(false)
   }, [])
 
-  const login = async (email: string, password: string) => {
-    setIsLoading(true)
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    const mockUser = MOCK_USERS.find(u => u.email === email && u.password === password)
-    if (mockUser) {
-      const user: User = { id: mockUser.id, name: mockUser.name, email: mockUser.email, role: mockUser.role }
-      setUser(user)
-      localStorage.setItem('blockbug_user', JSON.stringify(user))
-      setIsLoading(false)
-      return
+  useEffect(() => {
+    if (!user) return
+
+    const storageKey = 'blockbug_last_active_at'
+    const timeoutMs = Math.max(15, Number(settings.session_timeout_minutes) || 120) * 60 * 1000
+
+    const bumpActivity = () => {
+      localStorage.setItem(storageKey, String(Date.now()))
     }
 
-    setIsLoading(false)
-    throw new Error('Invalid email or password')
+    const checkSession = () => {
+      const lastActive = Number(localStorage.getItem(storageKey) || 0)
+      if (lastActive > 0 && Date.now() - lastActive > timeoutMs) {
+        logout()
+      }
+    }
+
+    bumpActivity()
+    const intervalId = window.setInterval(checkSession, 30000)
+    window.addEventListener('pointerdown', bumpActivity)
+    window.addEventListener('keydown', bumpActivity)
+    window.addEventListener('scroll', bumpActivity, true)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('pointerdown', bumpActivity)
+      window.removeEventListener('keydown', bumpActivity)
+      window.removeEventListener('scroll', bumpActivity, true)
+    }
+  }, [settings.session_timeout_minutes, user])
+
+  const login = async (email: string, password: string) => {
+    setIsLoading(true)
+    try {
+      const { user } = await api.login(email, password)
+      setUser(user)
+      localStorage.setItem('blockbug_user', JSON.stringify(user))
+      localStorage.setItem('blockbug_last_active_at', String(Date.now()))
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const signup = async (name: string, email: string, password: string) => {
     setIsLoading(true)
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    const newUser: User = {
-      id: Math.random().toString(36).substr(2, 9),
-      name,
-      email,
-      role: 'tester',
+    try {
+      const { user } = await api.signup(name, email, password)
+      setUser(user)
+      setAvailableUsers(prev => [...prev, user])
+      localStorage.setItem('blockbug_user', JSON.stringify(user))
+      localStorage.setItem('blockbug_last_active_at', String(Date.now()))
+    } finally {
+      setIsLoading(false)
     }
-    setUser(newUser)
-    localStorage.setItem('blockbug_user', JSON.stringify(newUser))
-    setIsLoading(false)
   }
 
   const logout = () => {
     setUser(null)
     localStorage.removeItem('blockbug_user')
+    localStorage.removeItem('blockbug_last_active_at')
+  }
+
+  const updateProfile = async (name: string) => {
+    if (!user) return
+    const { user: updatedUser } = await api.updateUser(user.id, { name })
+    setUser(updatedUser)
+    localStorage.setItem('blockbug_user', JSON.stringify(updatedUser))
+    localStorage.setItem('blockbug_last_active_at', String(Date.now()))
   }
 
   return (
@@ -143,9 +164,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         login,
         signup,
+        updateProfile,
         logout,
         isAuthenticated: !!user,
-        availableUsers: MOCK_USERS.map(({ password, ...userData }) => userData),
+        availableUsers,
       }}
     >
       {children}
