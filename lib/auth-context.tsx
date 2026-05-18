@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { api, type User, type UserRole } from '@/lib/api'
+import { api, type Organization, type User, type UserRole } from '@/lib/api'
 import { useSystemSettings } from '@/lib/system-settings-context'
 
 export type { User, UserRole }
@@ -53,9 +53,17 @@ export const ROLE_DEFINITIONS: Record<UserRole, RoleDefinition> = {
 
 interface AuthContextType {
   user: User | null
+  organization: Organization | null
   isLoading: boolean
-  login: (email: string, password: string) => Promise<void>
-  signup: (name: string, email: string, password: string) => Promise<void>
+  login: (organizationId: string, email: string, password: string) => Promise<void>
+  signup: (
+    organizationName: string,
+    organizationEmail: string,
+    organizationPassword: string,
+    adminName: string,
+    adminEmail: string,
+    adminPassword: string,
+  ) => Promise<void>
   updateProfile: (name: string) => Promise<void>
   logout: () => void
   isAuthenticated: boolean
@@ -66,15 +74,43 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [organization, setOrganization] = useState<Organization | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [availableUsers, setAvailableUsers] = useState<User[]>([])
   const { settings } = useSystemSettings()
 
+  const rememberOrganizationFromUser = (nextUser: User) => {
+    if (!nextUser.organizationId || !nextUser.organizationName || !nextUser.organizationEmail) {
+      return
+    }
+
+    const nextOrganization: Organization = {
+      id: nextUser.organizationId,
+      name: nextUser.organizationName,
+      loginEmail: nextUser.organizationEmail,
+      status: 'active',
+    }
+
+    setOrganization(nextOrganization)
+    localStorage.setItem('blockbug_organization', JSON.stringify(nextOrganization))
+  }
+
   useEffect(() => {
+    const storedOrganization = localStorage.getItem('blockbug_organization')
+    if (storedOrganization) {
+      try {
+        setOrganization(JSON.parse(storedOrganization))
+      } catch {
+        localStorage.removeItem('blockbug_organization')
+      }
+    }
+
     const stored = localStorage.getItem('blockbug_user')
     if (stored) {
       try {
-        setUser(JSON.parse(stored))
+        const parsedUser = JSON.parse(stored)
+        setUser(parsedUser)
+        rememberOrganizationFromUser(parsedUser)
       } catch {
         localStorage.removeItem('blockbug_user')
       }
@@ -118,26 +154,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [settings.session_timeout_minutes, user])
 
-  const login = async (email: string, password: string) => {
+  const login = async (organizationId: string, email: string, password: string) => {
     setIsLoading(true)
     try {
-      const { user } = await api.login(email, password)
+      const { user } = await api.memberLogin(organizationId, email, password)
       setUser(user)
+      rememberOrganizationFromUser(user)
       localStorage.setItem('blockbug_user', JSON.stringify(user))
       localStorage.setItem('blockbug_last_active_at', String(Date.now()))
+      try {
+        setAvailableUsers(await api.getUsers())
+      } catch {
+        setAvailableUsers([])
+      }
     } finally {
       setIsLoading(false)
     }
   }
 
-  const signup = async (name: string, email: string, password: string) => {
+  const signup = async (
+    organizationName: string,
+    organizationEmail: string,
+    organizationPassword: string,
+    adminName: string,
+    adminEmail: string,
+    adminPassword: string,
+  ) => {
     setIsLoading(true)
     try {
-      const { user } = await api.signup(name, email, password)
+      const { user } = await api.signup(
+        organizationName,
+        organizationEmail,
+        organizationPassword,
+        adminName,
+        adminEmail,
+        adminPassword,
+      )
       setUser(user)
-      setAvailableUsers(prev => [...prev, user])
+      rememberOrganizationFromUser(user)
       localStorage.setItem('blockbug_user', JSON.stringify(user))
       localStorage.setItem('blockbug_last_active_at', String(Date.now()))
+      try {
+        setAvailableUsers(await api.getUsers())
+      } catch {
+        setAvailableUsers([])
+      }
     } finally {
       setIsLoading(false)
     }
@@ -161,6 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        organization,
         isLoading,
         login,
         signup,

@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { api, type RoleDefinition, type User, type UserRole } from '@/lib/api'
+import { useAuth } from '@/lib/auth-context'
 import { Shield, Users } from 'lucide-react'
 
 const roleColors: Record<string, string> = {
@@ -15,9 +17,21 @@ const roleColors: Record<string, string> = {
 }
 
 export function TeamPage() {
+  const { user } = useAuth()
   const [teamMembers, setTeamMembers] = useState<User[]>([])
   const [roles, setRoles] = useState<Record<UserRole, RoleDefinition> | null>(null)
+  const [newMember, setNewMember] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'tester' as UserRole,
+    status: 'active' as 'active' | 'inactive',
+  })
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
+  const [isCreatingMember, setIsCreatingMember] = useState(false)
+  const isAdmin = user?.role === 'admin'
+  const visibleTeamMembers = isAdmin ? teamMembers : teamMembers.filter((member) => member.role !== 'admin')
 
   useEffect(() => {
     Promise.all([api.getUsers(), api.getRoles()])
@@ -29,19 +43,91 @@ export function TeamPage() {
   }, [])
 
   const updateMember = async (member: User, updates: Partial<Pick<User, 'role' | 'status'>>) => {
-    const { user } = await api.updateUser(member.id, updates)
-    setTeamMembers(prev => prev.map(item => item.id === user.id ? user : item))
+    if (!isAdmin) return
+    const { user: updatedUser } = await api.updateUser(member.id, { ...updates, actorRole: user?.role })
+    setTeamMembers(prev => prev.map(item => item.id === updatedUser.id ? updatedUser : item))
+  }
+
+  const createMember = async () => {
+    if (!isAdmin) return
+    if (!newMember.name || !newMember.email || !newMember.password) {
+      setError('Enter name, email, and a temporary password for the new team member.')
+      setSuccessMessage('')
+      return
+    }
+
+    setIsCreatingMember(true)
+    setError('')
+    setSuccessMessage('')
+    try {
+      const { user: createdUser } = await api.createUser({ ...newMember, actorRole: user?.role })
+      setTeamMembers((prev) => [...prev, createdUser].sort((a, b) => a.name.localeCompare(b.name)))
+      setNewMember({ name: '', email: '', password: '', role: 'tester', status: 'active' })
+      setSuccessMessage(`${createdUser.name} added to the team.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add team member.')
+    } finally {
+      setIsCreatingMember(false)
+    }
   }
 
   return (
     <div className="p-8 space-y-8">
       {error && <Card className="p-4 border border-destructive text-destructive">{error}</Card>}
+      {successMessage && <Card className="p-4 border border-green-200 text-green-700">{successMessage}</Card>}
       <div className="flex justify-between items-start">
         <div>
           <h2 className="text-3xl font-bold text-foreground mb-2">Team Members</h2>
-          <p className="text-muted-foreground">Manage your team and assign roles</p>
+          <p className="text-muted-foreground">{isAdmin ? 'Manage your team and assign roles' : 'View your team and role coverage'}</p>
         </div>
       </div>
+
+      {isAdmin && (
+        <Card className="p-6 border border-border">
+          <p className="text-sm font-semibold text-foreground mb-4">Add Team Member</p>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <Input
+              placeholder="Full name"
+              value={newMember.name}
+              onChange={(event) => setNewMember({ ...newMember, name: event.target.value })}
+            />
+            <Input
+              type="email"
+              placeholder="Email address"
+              value={newMember.email}
+              onChange={(event) => setNewMember({ ...newMember, email: event.target.value })}
+            />
+            <Input
+              type="text"
+              placeholder="Temporary password"
+              value={newMember.password}
+              onChange={(event) => setNewMember({ ...newMember, password: event.target.value })}
+            />
+            <select
+              value={newMember.role}
+              onChange={(event) => setNewMember({ ...newMember, role: event.target.value as UserRole })}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm capitalize"
+            >
+              {(['admin', 'manager', 'developer', 'tester'] as UserRole[]).map((role) => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+            </select>
+            <div className="flex gap-3">
+              <select
+                value={newMember.status}
+                onChange={(event) => setNewMember({ ...newMember, status: event.target.value as 'active' | 'inactive' })}
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm capitalize"
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <Button type="button" onClick={createMember} disabled={isCreatingMember}>
+                {isCreatingMember ? 'Adding...' : 'Add'}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card className="border border-border overflow-hidden">
         <div className="overflow-x-auto">
@@ -56,7 +142,7 @@ export function TeamPage() {
               </tr>
             </thead>
             <tbody>
-              {teamMembers.map((member) => (
+              {visibleTeamMembers.map((member) => (
                 <tr key={member.id} className="border-b border-border hover:bg-muted/50 transition">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -68,15 +154,19 @@ export function TeamPage() {
                   </td>
                   <td className="px-6 py-4 text-muted-foreground text-sm">{member.email}</td>
                   <td className="px-6 py-4">
-                    <select
-                      value={member.role}
-                      onChange={(event) => updateMember(member, { role: event.target.value as UserRole })}
-                      className="rounded-md border border-border bg-background px-2 py-1 text-sm capitalize"
-                    >
-                      {['admin', 'manager', 'developer', 'tester'].map((role) => (
-                        <option key={role} value={role}>{role}</option>
-                      ))}
-                    </select>
+                    {isAdmin ? (
+                      <select
+                        value={member.role}
+                        onChange={(event) => updateMember(member, { role: event.target.value as UserRole })}
+                        className="rounded-md border border-border bg-background px-2 py-1 text-sm capitalize"
+                      >
+                        {['admin', 'manager', 'developer', 'tester'].map((role) => (
+                          <option key={role} value={role}>{role}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Badge className={`${roleColors[member.role]} capitalize`}>{member.role}</Badge>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <Badge className={`${member.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'} capitalize`}>
@@ -84,13 +174,17 @@ export function TeamPage() {
                     </Badge>
                   </td>
                   <td className="px-6 py-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => updateMember(member, { status: member.status === 'active' ? 'inactive' : 'active' })}
-                    >
-                      {member.status === 'active' ? 'Deactivate' : 'Activate'}
-                    </Button>
+                    {isAdmin ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => updateMember(member, { status: member.status === 'active' ? 'inactive' : 'active' })}
+                      >
+                        {member.status === 'active' ? 'Deactivate' : 'Activate'}
+                      </Button>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">View only</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -121,7 +215,7 @@ export function TeamPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase font-semibold">Total Members</p>
-              <p className="text-2xl font-bold text-foreground">{teamMembers.length}</p>
+              <p className="text-2xl font-bold text-foreground">{visibleTeamMembers.length}</p>
             </div>
           </div>
         </Card>
@@ -133,7 +227,7 @@ export function TeamPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase font-semibold">Active</p>
-              <p className="text-2xl font-bold text-foreground">{teamMembers.filter(member => member.status === 'active').length}</p>
+              <p className="text-2xl font-bold text-foreground">{visibleTeamMembers.filter(member => member.status === 'active').length}</p>
             </div>
           </div>
         </Card>
@@ -145,7 +239,7 @@ export function TeamPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase font-semibold">Admins</p>
-              <p className="text-2xl font-bold text-foreground">{teamMembers.filter(member => member.role === 'admin').length}</p>
+              <p className="text-2xl font-bold text-foreground">{visibleTeamMembers.filter(member => member.role === 'admin').length}</p>
             </div>
           </div>
         </Card>

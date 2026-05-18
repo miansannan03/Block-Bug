@@ -171,7 +171,7 @@ export function SettingsPage() {
   const handleSystemSettingsSave = async () => {
     setActiveAction('project-defaults')
     try {
-      const result = await api.updateSystemSettings(systemSettings)
+      const result = await api.updateSystemSettings(systemSettings, user?.role)
       setSystemSettings({ ...defaultSystemSettings, ...result.settings })
       window.dispatchEvent(new Event('blockbug:system-settings-updated'))
       await refreshAdminAudit()
@@ -185,7 +185,7 @@ export function SettingsPage() {
 
   const updateMember = async (member: User, updates: Partial<Pick<User, 'role' | 'status'>>) => {
     try {
-      const { user: updatedUser } = await api.updateUser(member.id, updates)
+      const { user: updatedUser } = await api.updateUser(member.id, { ...updates, actorRole: user?.role })
       setTeamMembers((prev) => prev.map((item) => item.id === updatedUser.id ? updatedUser : item))
       await refreshAdminAudit()
       showSuccess(`${updatedUser.name} updated.`)
@@ -202,7 +202,7 @@ export function SettingsPage() {
 
     setActiveAction('create-member')
     try {
-      const { user: createdUser } = await api.createUser(newMember)
+      const { user: createdUser } = await api.createUser({ ...newMember, actorRole: user?.role })
       setTeamMembers((prev) => [...prev, createdUser].sort((a, b) => a.name.localeCompare(b.name)))
       setNewMember({ name: '', email: '', password: '', role: 'tester', status: 'active' })
       await refreshAdminAudit()
@@ -221,7 +221,7 @@ export function SettingsPage() {
     }
 
     try {
-      await api.deleteUser(member.id)
+      await api.deleteUser(member.id, user?.role)
       setTeamMembers((prev) => prev.filter((item) => item.id !== member.id))
       await refreshAdminAudit()
       showSuccess(`${member.name} deleted.`)
@@ -233,7 +233,7 @@ export function SettingsPage() {
   const exportWorkspaceData = async () => {
     setActiveAction('export')
     try {
-      const data = await api.exportMaintenanceData()
+      const data = await api.exportMaintenanceData(user?.role)
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
@@ -252,7 +252,7 @@ export function SettingsPage() {
   const clearMaintenanceData = async (target: 'notifications' | 'activity' | 'all') => {
     setActiveAction(`clear-${target}`)
     try {
-      await api.clearMaintenanceData(target)
+      await api.clearMaintenanceData(target, user?.role)
       if (target === 'notifications' || target === 'all') {
         window.dispatchEvent(new Event('blockbug:notifications-updated'))
         setAuditNotifications([])
@@ -270,7 +270,7 @@ export function SettingsPage() {
   const resetDemoData = async () => {
     setActiveAction('reset-demo')
     try {
-      await api.resetDemoData()
+      await api.resetDemoData(user?.role)
       if (user) {
         const preferencesResult = await api.getPreferences(user.id)
         setPreferences(preferencesResult.preferences)
@@ -296,7 +296,7 @@ export function SettingsPage() {
   const deactivateAccount = async () => {
     if (!user) return
     try {
-      await api.updateUser(user.id, { status: 'inactive' })
+      await api.updateUser(user.id, { status: 'inactive', actorRole: user?.role })
       logout()
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Could not deactivate account.')
@@ -554,9 +554,10 @@ export function SettingsPage() {
                   onChange={(event) => setSystemSettings({ ...systemSettings, default_bug_priority: event.target.value as SystemSettings['default_bug_priority'] })}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 >
-                  {['low', 'medium', 'high', 'critical'].map((priority) => (
-                    <option key={priority} value={priority}>{priority}</option>
-                  ))}
+                  <option value="low">Low - Minor inconvenience</option>
+                  <option value="medium">Medium - Affects functionality</option>
+                  <option value="high">High - Major feature broken</option>
+                  <option value="critical">Critical - System unusable</option>
                 </select>
               </div>
               <div>
@@ -566,9 +567,9 @@ export function SettingsPage() {
                   onChange={(event) => setSystemSettings({ ...systemSettings, default_bug_severity: event.target.value as SystemSettings['default_bug_severity'] })}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 >
-                  {['minor', 'major', 'critical'].map((severity) => (
-                    <option key={severity} value={severity}>{severity}</option>
-                  ))}
+                  <option value="minor">Minor - Cosmetic issue</option>
+                  <option value="major">Major - Functional issue</option>
+                  <option value="critical">Critical - Data loss or security</option>
                 </select>
               </div>
               <div>

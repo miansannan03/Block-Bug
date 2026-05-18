@@ -1,0 +1,5 @@
+
+> blockbug-blockchain@0.1.0 service
+> node services/audit-service.js
+
+BlockBug blockchain audit service listening on http://127.0.0.1:8787

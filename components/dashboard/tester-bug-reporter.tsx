@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { api, type Bug, type Project, type SystemSettings } from '@/lib/api'
+import { api, type BlockchainBugEvent, type Bug, type Project, type SystemSettings } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Bug as BugIcon, CheckCircle2, AlertTriangle, XCircle, Clock } from 'lucide-react'
+import { Plus, Bug as BugIcon, CheckCircle2, AlertTriangle, XCircle, Clock, RotateCcw, ArrowLeft } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -38,6 +38,10 @@ export function TesterBugReporter() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [defaults, setDefaults] = useState(bugDefaults)
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+  const [updatingBugId, setUpdatingBugId] = useState<string | null>(null)
+  const [selectedBug, setSelectedBug] = useState<Bug | null>(null)
+  const [blockchainEvents, setBlockchainEvents] = useState<BlockchainBugEvent[]>([])
   const { user } = useAuth()
 
   const form = useForm<NewBugFormData>({
@@ -55,7 +59,11 @@ export function TesterBugReporter() {
   })
 
   useEffect(() => {
-    Promise.all([api.getBugs(user?.email), api.getProjects(), api.getSystemSettings().catch(() => ({ settings: bugDefaults as Partial<SystemSettings> }))])
+    Promise.all([
+      api.getBugs(user?.email ? { actorRole: user.role, actorEmail: user.email } : undefined),
+      api.getProjects(),
+      api.getSystemSettings().catch(() => ({ settings: bugDefaults as Partial<SystemSettings> })),
+    ])
       .then(([bugsData, projectsData, settingsData]) => {
         setBugs(bugsData)
         setProjects(projectsData)
@@ -74,7 +82,23 @@ export function TesterBugReporter() {
       .finally(() => setLoading(false))
   }, [form, user?.email])
 
-  const myReportedBugs = bugs.filter(bug => bug.reportedBy === user?.email)
+  useEffect(() => {
+    if (!selectedBug) {
+      setBlockchainEvents([])
+      return
+    }
+
+    api.getBugBlockchainEvents(selectedBug.id).then(setBlockchainEvents).catch(() => setBlockchainEvents([]))
+  }, [selectedBug])
+
+  const testerVisibleBugs = bugs.filter((bug) => bug.reportedBy === user?.email || bug.verificationTesterEmail === user?.email)
+  const myReportedBugs = testerVisibleBugs.filter(bug => bug.reportedBy === user?.email)
+  const pendingVerificationBugs = testerVisibleBugs.filter((bug) => bug.status === 'resolved' && bug.verificationTesterEmail === user?.email)
+  const activeReportedBugs = testerVisibleBugs.filter((bug) => !(bug.status === 'resolved' && bug.verificationTesterEmail === user?.email))
+  const projectNameById = useMemo(
+    () => Object.fromEntries(projects.map((project) => [project.id, project.name])),
+    [projects],
+  )
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -107,13 +131,14 @@ export function TesterBugReporter() {
   }
 
   const onSubmitNewBug = async (data: NewBugFormData) => {
-    const newBug = await api.createBug({
+    const result = await api.createBug({
       ...data,
       reportedBy: user?.email || 'unknown@blockbug.dev',
-    })
-    setBugs(prev => [newBug, ...prev])
+    }, attachmentFile)
+    setBugs(prev => [result.bug, ...prev])
     window.dispatchEvent(new Event('blockbug:notifications-updated'))
     setIsNewBugDialogOpen(false)
+    setAttachmentFile(null)
     form.reset({
       title: '',
       description: '',
@@ -127,10 +152,62 @@ export function TesterBugReporter() {
     })
   }
 
+  const getBlockchainActionLabel = (action: string) => {
+    switch (action) {
+      case 'bug_created':
+        return 'Bug created'
+      case 'bug_status_changed':
+        return 'Status changed'
+      case 'bug_verified':
+        return 'Bug verified'
+      case 'bug_verification_rejected':
+        return 'Verification rejected'
+      default:
+        return action.replace(/_/g, ' ')
+    }
+  }
+
+  const formatTxHash = (value?: string | null) => {
+    if (!value) return 'Not available'
+    if (value.length <= 18) return value
+    return `${value.slice(0, 10)}...${value.slice(-8)}`
+  }
+
+  const getBlockchainEventStatus = (event: BlockchainBugEvent) => {
+    if (!event.metadataJson) return null
+    try {
+      const parsed = JSON.parse(event.metadataJson)
+      const value = parsed?.toStatus ?? parsed?.status ?? null
+      return typeof value === 'string' ? value : null
+    } catch {
+      return null
+    }
+  }
+
   const stats = {
-    totalReported: myReportedBugs.length,
-    open: myReportedBugs.filter(b => b.status === 'open').length,
-    resolved: myReportedBugs.filter(b => b.status === 'resolved' || b.status === 'closed').length,
+    totalReported: testerVisibleBugs.length,
+    open: testerVisibleBugs.filter(b => b.status === 'open').length,
+    resolved: pendingVerificationBugs.length,
+    closed: testerVisibleBugs.filter(b => b.status === 'closed').length,
+  }
+
+  const updateReportedBugStatus = async (bug: Bug, status: Bug['status']) => {
+    setUpdatingBugId(bug.id)
+    setError('')
+    try {
+      const updatedBug = await api.updateBug(bug.id, {
+        status,
+        userEmail: user?.email,
+        userName: user?.name,
+      })
+      setBugs((prev) => prev.map((item) => item.id === updatedBug.id ? updatedBug : item))
+      setSelectedBug((prev) => prev?.id === updatedBug.id ? updatedBug : prev)
+      window.dispatchEvent(new Event('blockbug:notifications-updated'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update bug status')
+    } finally {
+      setUpdatingBugId(null)
+    }
   }
 
   return (
@@ -332,7 +409,7 @@ export function TesterBugReporter() {
                       <FormLabel>Environment</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="Browser, OS, device, version..."
+                          placeholder="Production, Testing, or Development"
                           {...field}
                         />
                       </FormControl>
@@ -340,6 +417,16 @@ export function TesterBugReporter() {
                     </FormItem>
                   )}
                 />
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-foreground">Attachment (Optional)</label>
+                  <Input
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.zip,.log"
+                    onChange={(event) => setAttachmentFile(event.target.files?.[0] || null)}
+                  />
+                  <p className="text-xs text-muted-foreground">Supported: images, PDF, text, CSV, ZIP. Max 10 MB.</p>
+                </div>
 
                 <div className="flex justify-end gap-3 pt-4">
                   <Button
@@ -358,7 +445,7 @@ export function TesterBugReporter() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="p-6">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 rounded-lg">
@@ -390,11 +477,346 @@ export function TesterBugReporter() {
             </div>
             <div>
               <p className="text-2xl font-bold">{stats.resolved}</p>
-              <p className="text-sm text-muted-foreground">Resolved</p>
+              <p className="text-sm text-muted-foreground">Waiting for Verification</p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-slate-100 rounded-lg">
+              <XCircle className="w-6 h-6 text-slate-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{stats.closed}</p>
+              <p className="text-sm text-muted-foreground">Verified & Closed</p>
             </div>
           </div>
         </Card>
       </div>
+
+      {selectedBug ? (
+        <Card className="border border-border/70 bg-card p-8 shadow-sm">
+          <button
+            onClick={() => setSelectedBug(null)}
+            className="mb-6 inline-flex w-fit max-w-fit shrink-0 items-center gap-2 self-start rounded-2xl border border-primary/20 bg-slate-100 px-4 py-2 text-sm font-semibold text-primary shadow-[0_2px_10px_rgba(37,99,235,0.08)] transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-slate-50 hover:text-primary hover:shadow-[0_6px_18px_rgba(37,99,235,0.12)] dark:bg-slate-900/70 dark:hover:bg-slate-900"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to My Reports
+          </button>
+
+          <div className="mb-6 rounded-2xl border border-border/70 bg-muted/10 px-6 py-5">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Tester Workspace</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <h2 className="text-3xl font-bold tracking-tight text-foreground">{selectedBug.title}</h2>
+                <Badge variant="outline" className="capitalize">{selectedBug.status.replace('-', ' ')}</Badge>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">Bug #{selectedBug.id.substring(0, 8)}</p>
+            </div>
+
+            {selectedBug.status === 'resolved' ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                <p className="text-sm font-semibold text-foreground">Tester Verification</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Confirm the fix here. Close it if it is fixed, or return it to the developer if more work is needed.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => void updateReportedBugStatus(selectedBug, 'closed')}
+                    disabled={updatingBugId === selectedBug.id}
+                  >
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    {updatingBugId === selectedBug.id ? 'Saving...' : 'Verify Fix & Close'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void updateReportedBugStatus(selectedBug, 'in-progress')}
+                    disabled={updatingBugId === selectedBug.id}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Send Back to In Progress
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
+                <p className="text-sm font-semibold text-foreground">Current Flow</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selectedBug.status === 'closed'
+                    ? 'This bug has already been verified and closed.'
+                    : selectedBug.status === 'in-progress'
+                      ? 'A developer is actively working on this report.'
+                      : 'This report is waiting for the assigned developer to move it forward.'}
+                </p>
+              </div>
+            )}
+            </div>
+          </div>
+
+          <div className="mb-6 rounded-2xl border border-border/70 bg-gradient-to-b from-muted/30 to-muted/15 p-6">
+            <div className="mb-5">
+              <p className="text-sm font-semibold text-foreground">Current Snapshot</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                A quick read on the current stage, severity, ownership, and reporting context before reviewing the full bug details.
+              </p>
+            </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-xl border border-border/70 bg-background/90 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{projectNameById[selectedBug.projectId] || 'Unknown project'}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/90 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Assigned To</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{selectedBug.assignedTo || 'Not assigned yet'}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/90 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Logged By</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{selectedBug.reportedBy}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/90 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Priority</p>
+              <p className="mt-2 text-sm font-medium text-foreground capitalize">{selectedBug.priority}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/90 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Severity</p>
+              <p className="mt-2 text-sm font-medium text-foreground capitalize">{selectedBug.severity}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/90 p-4 md:col-span-2 xl:col-span-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Created</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{formatDateWithSettings(selectedBug.createdAt, defaults)}</p>
+            </div>
+          </div>
+          </div>
+
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-5 shadow-sm">
+              <div className="border-b border-border/60 pb-3">
+                <p className="text-sm font-semibold text-foreground">Description</p>
+                <p className="mt-1 text-xs text-muted-foreground">A short overview of the issue before the deeper reproduction notes.</p>
+              </div>
+              <p className="mt-3 text-sm leading-7 text-foreground whitespace-pre-wrap">{selectedBug.description}</p>
+            </div>
+
+            {(selectedBug.stepsToReproduce || selectedBug.expectedResult || selectedBug.actualResult || selectedBug.environment) && (
+              <div className="rounded-2xl border border-border/70 bg-muted/20 p-5 shadow-sm">
+                <div className="mb-4 border-b border-border/60 pb-3">
+                  <p className="text-sm font-semibold text-foreground">Reproduction & Validation</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    These blocks capture how the issue appears, where it happens, and what outcome we expect after the fix.
+                  </p>
+                </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {selectedBug.stepsToReproduce && (
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-5">
+                    <p className="text-sm font-semibold text-foreground mb-2">Steps to Reproduce</p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap">{selectedBug.stepsToReproduce}</p>
+                  </div>
+                )}
+                {selectedBug.environment && (
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-5">
+                    <p className="text-sm font-semibold text-foreground mb-2">Environment</p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap">{selectedBug.environment}</p>
+                  </div>
+                )}
+                {selectedBug.expectedResult && (
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-5">
+                    <p className="text-sm font-semibold text-foreground mb-2">Expected Result</p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap">{selectedBug.expectedResult}</p>
+                  </div>
+                )}
+                {selectedBug.actualResult && (
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-5">
+                    <p className="text-sm font-semibold text-foreground mb-2">Actual Result</p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap">{selectedBug.actualResult}</p>
+                  </div>
+                )}
+              </div>
+              </div>
+            )}
+
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-5 shadow-sm">
+              <div className="border-b border-border/60 pb-3">
+                <p className="text-sm font-semibold text-foreground">Ownership & Routing</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Keep the project and assignment details separate from the reproduction notes above.
+                </p>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">{projectNameById[selectedBug.projectId] || 'Unknown project'}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Assigned To</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">{selectedBug.assignedTo || 'Not assigned yet'}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Logged By</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">{selectedBug.reportedBy}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Verification Tester</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">{selectedBug.verificationTesterEmail || 'Not assigned yet'}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/70 bg-muted/20 p-5 shadow-sm">
+              <p className="text-sm font-semibold text-foreground mb-3">Blockchain Proof</p>
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sync Status</p>
+                  <div className="mt-2">
+                    <Badge
+                      variant="outline"
+                      className={selectedBug.blockchainLastSyncStatus === 'synced'
+                        ? 'border-emerald-300 text-emerald-700'
+                        : selectedBug.blockchainLastSyncStatus === 'failed'
+                          ? 'border-red-300 text-red-700'
+                          : 'border-border text-muted-foreground'}
+                    >
+                      {selectedBug.blockchainLastSyncStatus || 'Not synced yet'}
+                    </Badge>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Latest Tx</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">{formatTxHash(selectedBug.blockchainLastTxHash)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bug Chain Id</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">{formatTxHash(selectedBug.blockchainBugChainId)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Latest Event Id</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">
+                    {selectedBug.blockchainLastEventId != null ? selectedBug.blockchainLastEventId : 'Not available'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Last Synced</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">
+                    {selectedBug.blockchainLastSyncedAt ? formatDateWithSettings(selectedBug.blockchainLastSyncedAt, defaults, true) : 'Not available'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-2">
+                {blockchainEvents.length > 0 ? blockchainEvents.map((event) => (
+                  <div key={event.id} className="rounded-lg border border-border bg-muted/10 px-4 py-3">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{getBlockchainActionLabel(event.action)}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span>{event.createdByEmail || 'system'} â€¢ {formatDateWithSettings(event.createdAt, defaults, true)}</span>
+                          {getBlockchainEventStatus(event) && (
+                            <Badge variant="secondary" className="h-5 rounded-full px-2 text-[11px] capitalize">
+                              {getBlockchainEventStatus(event)?.replace('-', ' ')}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <Badge
+                          variant="outline"
+                          className={event.syncStatus === 'synced' ? 'border-emerald-300 text-emerald-700' : 'border-red-300 text-red-700'}
+                        >
+                          {event.syncStatus}
+                        </Badge>
+                        <span className="text-muted-foreground">event #{event.blockchainEventId ?? 'â€”'}</span>
+                        <span className="font-medium text-foreground">{formatTxHash(event.transactionHash)}</span>
+                      </div>
+                    </div>
+                    {event.errorMessage && (
+                      <p className="mt-2 text-xs text-red-600">{event.errorMessage}</p>
+                    )}
+                  </div>
+                )) : (
+                  <p className="text-sm text-muted-foreground">No blockchain audit events are recorded for this bug yet.</p>
+                )}
+              </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      ) : (
+      <>
+      <Card className="p-6 border border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">Pending Verification</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              These resolved bugs are waiting for you to confirm the fix and either close them or send them back.
+            </p>
+          </div>
+          <Badge variant="outline" className="border-emerald-300 bg-background/80 text-emerald-700">
+            {pendingVerificationBugs.length} waiting
+          </Badge>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading pending verification...</div>
+        ) : pendingVerificationBugs.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-emerald-300/70 bg-background/60 px-4 py-8 text-center text-sm text-muted-foreground">
+            No resolved bugs are waiting for verification right now.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {pendingVerificationBugs.map((bug) => (
+              <div
+                key={bug.id}
+                className="rounded-lg border border-emerald-200 bg-background p-4 dark:border-emerald-900/30"
+              >
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBug(bug)}
+                      className="w-full rounded-md p-1 text-left transition hover:bg-muted/40"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-medium text-foreground">{bug.title}</h3>
+                        <Badge variant="outline" className={getPriorityColor(bug.priority)}>
+                          {bug.priority}
+                        </Badge>
+                        <Badge variant="outline">{bug.severity}</Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-muted-foreground">{bug.description}</p>
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        Reported on {formatDateWithSettings(bug.createdAt, defaults)}
+                      </p>
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => void updateReportedBugStatus(bug, 'closed')}
+                      disabled={updatingBugId === bug.id}
+                    >
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      {updatingBugId === bug.id ? 'Saving...' : 'Verify Fix & Close'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void updateReportedBugStatus(bug, 'in-progress')}
+                      disabled={updatingBugId === bug.id}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Send Back to In Progress
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       {/* My Reported Bugs */}
       <Card className="p-6">
@@ -408,36 +830,94 @@ export function TesterBugReporter() {
               <p>You haven't reported any bugs yet.</p>
               <p className="text-sm">Click "Report New Bug" to get started!</p>
             </div>
+          ) : activeReportedBugs.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+              All of your current resolved bugs are shown above in Pending Verification.
+            </div>
           ) : (
-            myReportedBugs.map((bug) => (
-              <div key={bug.id} className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition">
-                <div className="flex items-center gap-4">
-                  {getStatusIcon(bug.status)}
-                  <div>
-                    <h3 className="font-medium">{bug.title}</h3>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline" className={getPriorityColor(bug.priority)}>
-                        {bug.priority}
-                      </Badge>
-                      <Badge variant="outline">
-                        {bug.severity}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {formatDateWithSettings(bug.createdAt, defaults)}
-                      </span>
+            activeReportedBugs.map((bug) => (
+              <button
+                key={bug.id}
+                type="button"
+                onClick={() => setSelectedBug(bug)}
+                className="w-full rounded-lg border border-border p-4 text-left transition hover:bg-muted/50"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-start gap-4">
+                    <div className="mt-0.5">{getStatusIcon(bug.status)}</div>
+                    <div>
+                      <h3 className="font-medium">{bug.title}</h3>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <Badge variant="outline" className={getPriorityColor(bug.priority)}>
+                          {bug.priority}
+                        </Badge>
+                        <Badge variant="outline">
+                          {bug.severity}
+                        </Badge>
+                        <Badge variant="outline" className="capitalize">
+                          {bug.status.replace('-', ' ')}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">
+                          {formatDateWithSettings(bug.createdAt, defaults)}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm text-muted-foreground">{bug.description}</p>
                     </div>
                   </div>
+
+                  {bug.status === 'resolved' ? (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                      <p className="text-sm font-semibold text-foreground">Tester Verification</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Confirm the fix, then close it. If it still fails, send it back to the developer.
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => void updateReportedBugStatus(bug, 'closed')}
+                          disabled={updatingBugId === bug.id}
+                        >
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          {updatingBugId === bug.id ? 'Saving...' : 'Verify Fix & Close'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void updateReportedBugStatus(bug, 'in-progress')}
+                          disabled={updatingBugId === bug.id}
+                        >
+                          <RotateCcw className="mr-2 h-4 w-4" />
+                          Send Back to In Progress
+                        </Button>
+                      </div>
+                    </div>
+                  ) : bug.status === 'closed' ? (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
+                      <p className="text-sm font-semibold text-foreground">Verification Complete</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        This fix has been verified and closed by testing.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+                      <p className="text-sm font-semibold text-foreground">Current Flow</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {bug.status === 'open'
+                          ? 'This report is waiting for a developer to start work.'
+                          : 'A developer is currently working on this bug.'}
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <div className="text-right">
-                  <Badge variant="outline" className="capitalize">
-                    {bug.status.replace('-', ' ')}
-                  </Badge>
-                </div>
-              </div>
+              </button>
             ))
           )}
         </div>
       </Card>
+      </>
+      )}
     </div>
   )
 }
+
+

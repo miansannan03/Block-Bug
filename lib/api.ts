@@ -5,8 +5,20 @@ export interface User {
   name: string
   email: string
   role: UserRole
+  organizationId?: string | null
+  organizationName?: string | null
+  organizationEmail?: string | null
   status?: 'active' | 'inactive'
   avatar?: string
+}
+
+export interface Organization {
+  id: string
+  name: string
+  loginEmail: string
+  status: 'active' | 'inactive'
+  createdAt?: Date
+  updatedAt?: Date
 }
 
 export interface RoleDefinition {
@@ -36,6 +48,7 @@ export interface Bug {
   projectId: string
   assignedTo?: string | null
   reportedBy: string
+  verificationTesterEmail?: string | null
   stepsToReproduce?: string | null
   expectedResult?: string | null
   actualResult?: string | null
@@ -43,6 +56,28 @@ export interface Bug {
   createdAt: Date
   updatedAt: Date
   verifiedAt?: Date | null
+  blockchainLastTxHash?: string | null
+  blockchainLastSyncStatus?: 'synced' | 'failed' | null
+  blockchainLastEventId?: number | null
+  blockchainBugChainId?: string | null
+  blockchainLastSyncedAt?: Date | null
+}
+
+export interface BlockchainBugEvent {
+  id: string
+  bugId: string
+  action: string
+  syncStatus: 'pending' | 'synced' | 'failed'
+  transactionHash?: string | null
+  blockchainEventId?: number | null
+  bugChainId?: string | null
+  contractAddress?: string | null
+  createdByEmail?: string | null
+  metadataJson?: string | null
+  serviceResponse?: string | null
+  errorMessage?: string | null
+  createdAt: Date
+  updatedAt: Date
 }
 
 export interface Activity {
@@ -58,9 +93,23 @@ export interface Activity {
 export interface Comment {
   id: string
   bugId: string
+  parentCommentId?: string | null
   userEmail: string
   userName: string
   comment: string
+  createdAt: Date
+}
+
+export interface BugAttachment {
+  id: string
+  bugId: string
+  originalName: string
+  storedName: string
+  filePath: string
+  mimeType: string
+  fileSize: number
+  uploadedBy: string
+  url: string
   createdAt: Date
 }
 
@@ -158,6 +207,7 @@ export interface NewBugPayload {
   projectId: string
   reportedBy: string
   assignedTo?: string
+  verificationTesterEmail?: string
   stepsToReproduce?: string
   expectedResult?: string
   actualResult?: string
@@ -167,12 +217,39 @@ export interface NewBugPayload {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
+  const headers = new Headers(init?.headers ?? {})
+  if (!isFormData && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (typeof window !== 'undefined') {
+    const stored = window.localStorage.getItem('blockbug_user')
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as User
+        if (parsed.organizationId && !headers.has('X-Organization-Id')) {
+          headers.set('X-Organization-Id', parsed.organizationId)
+        }
+      } catch {
+        // Ignore invalid local user cache and let the request proceed normally.
+      }
+    } else {
+      const storedOrganization = window.localStorage.getItem('blockbug_organization')
+      if (storedOrganization) {
+        try {
+          const parsedOrganization = JSON.parse(storedOrganization) as Organization
+          if (parsedOrganization.id && !headers.has('X-Organization-Id')) {
+            headers.set('X-Organization-Id', parsedOrganization.id)
+          }
+        } catch {
+          // Ignore invalid organization cache and let the request proceed normally.
+        }
+      }
+    }
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers,
   })
 
   const data = await response.json().catch(() => ({}))
@@ -202,6 +279,17 @@ function normalizeBug(bug: any): Bug {
     createdAt: parseDate(bug.createdAt) || new Date(),
     updatedAt: parseDate(bug.updatedAt) || new Date(),
     verifiedAt: parseDate(bug.verifiedAt),
+    blockchainLastEventId: bug.blockchainLastEventId != null ? Number(bug.blockchainLastEventId) : null,
+    blockchainLastSyncedAt: parseDate(bug.blockchainLastSyncedAt),
+  }
+}
+
+function normalizeBlockchainBugEvent(event: any): BlockchainBugEvent {
+  return {
+    ...event,
+    blockchainEventId: event.blockchainEventId != null ? Number(event.blockchainEventId) : null,
+    createdAt: parseDate(event.createdAt) || new Date(),
+    updatedAt: parseDate(event.updatedAt) || new Date(),
   }
 }
 
@@ -216,6 +304,13 @@ function normalizeComment(comment: any): Comment {
   return {
     ...comment,
     createdAt: parseDate(comment.createdAt) || new Date(),
+  }
+}
+
+function normalizeBugAttachment(attachment: any): BugAttachment {
+  return {
+    ...attachment,
+    createdAt: parseDate(attachment.createdAt) || new Date(),
   }
 }
 
@@ -244,18 +339,55 @@ function normalizeIntegration(integration: any): Integration {
   }
 }
 
+function normalizeOrganization(organization: any): Organization {
+  return {
+    ...organization,
+    createdAt: parseDate(organization.createdAt) || undefined,
+    updatedAt: parseDate(organization.updatedAt) || undefined,
+  }
+}
+
 export const api = {
-  async login(email: string, password: string) {
+  async validateOrganization(organizationEmail: string, organizationPassword: string) {
+    const data = await request<{ organization: Organization }>('/organization-login', {
+      method: 'POST',
+      body: JSON.stringify({ organizationEmail, organizationPassword }),
+    })
+    return normalizeOrganization(data.organization)
+  },
+
+  async login(organizationEmail: string, organizationPassword: string, email: string, password: string) {
     return request<{ user: User }>('/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ organizationEmail, organizationPassword, email, password }),
     })
   },
 
-  async signup(name: string, email: string, password: string) {
+  async memberLogin(organizationId: string, email: string, password: string) {
+    return request<{ user: User }>('/member-login', {
+      method: 'POST',
+      body: JSON.stringify({ organizationId, email, password }),
+    })
+  },
+
+  async signup(
+    organizationName: string,
+    organizationEmail: string,
+    organizationPassword: string,
+    adminName: string,
+    adminEmail: string,
+    adminPassword: string,
+  ) {
     return request<{ user: User }>('/signup', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify({
+        organizationName,
+        organizationEmail,
+        organizationPassword,
+        adminName,
+        adminEmail,
+        adminPassword,
+      }),
     })
   },
 
@@ -264,7 +396,7 @@ export const api = {
     return data.users
   },
 
-  async createUser(payload: { name: string; email: string; password: string; role: UserRole; status?: 'active' | 'inactive' }) {
+  async createUser(payload: { name: string; email: string; password: string; role: UserRole; status?: 'active' | 'inactive'; actorRole?: UserRole }) {
     return request<{ user: User }>('/users', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -276,15 +408,16 @@ export const api = {
     return data.roles
   },
 
-  async updateUser(id: string, payload: Partial<Pick<User, 'name' | 'role' | 'status'>>) {
+  async updateUser(id: string, payload: Partial<Pick<User, 'name' | 'role' | 'status'>> & { actorRole?: UserRole }) {
     return request<{ user: User }>(`/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     })
   },
 
-  async deleteUser(id: string) {
-    return request<{ ok: boolean }>(`/users/${id}`, {
+  async deleteUser(id: string, actorRole?: UserRole) {
+    const query = actorRole ? `?actor_role=${encodeURIComponent(actorRole)}` : ''
+    return request<{ ok: boolean }>(`/users/${id}${query}`, {
       method: 'DELETE',
     })
   },
@@ -301,7 +434,7 @@ export const api = {
     return data.projects.map(normalizeProject)
   },
 
-  async createProject(payload: { name: string; description: string; key: string; teamSize: number; status?: Project['status'] }) {
+  async createProject(payload: { name: string; description: string; key: string; teamSize?: number; status?: Project['status']; actorRole?: UserRole }) {
     const data = await request<{ project: any }>('/projects', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -309,21 +442,60 @@ export const api = {
     return normalizeProject(data.project)
   },
 
-  async getBugs(reportedBy?: string) {
-    const query = reportedBy ? `?reported_by=${encodeURIComponent(reportedBy)}` : ''
+  async deleteProject(id: string, actorRole?: UserRole) {
+    const query = actorRole ? `?actor_role=${encodeURIComponent(actorRole)}` : ''
+    return request<{ ok: boolean }>(`/projects/${id}${query}`, {
+      method: 'DELETE',
+    })
+  },
+
+  async getBugs(options?: { reportedBy?: string; actorRole?: UserRole; actorEmail?: string }) {
+    const params = new URLSearchParams()
+    if (options?.reportedBy) {
+      params.set('reported_by', options.reportedBy)
+    }
+    if (options?.actorRole) {
+      params.set('actor_role', options.actorRole)
+    }
+    if (options?.actorEmail) {
+      params.set('actor_email', options.actorEmail)
+    }
+    const query = params.toString() ? `?${params.toString()}` : ''
     const data = await request<{ bugs: any[] }>(`/bugs${query}`)
     return data.bugs.map(normalizeBug)
   },
 
-  async createBug(payload: NewBugPayload) {
-    const data = await request<{ bug: any }>('/bugs', {
-      method: 'POST',
-      body: JSON.stringify(payload),
+  async createBug(payload: NewBugPayload, attachment?: File | null) {
+    const body = new FormData()
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        body.append(key, String(value))
+      }
     })
-    return normalizeBug(data.bug)
+    if (attachment) {
+      body.append('attachment', attachment)
+    }
+    const data = await request<{ bug: any; attachment?: any | null }>('/bugs', {
+      method: 'POST',
+      body,
+    })
+    return {
+      bug: normalizeBug(data.bug),
+      attachment: data.attachment ? normalizeBugAttachment(data.attachment) : null,
+    }
   },
 
-  async updateBug(id: string, payload: Partial<Pick<Bug, 'status' | 'assignedTo'>> & { userEmail?: string; userName?: string }) {
+  async getBugAttachments(bugId: string) {
+    const data = await request<{ attachments: any[] }>(`/bugs/${bugId}/attachments`)
+    return data.attachments.map(normalizeBugAttachment)
+  },
+
+  async getBugBlockchainEvents(bugId: string) {
+    const data = await request<{ events: any[] }>(`/bugs/${bugId}/blockchain-events`)
+    return data.events.map(normalizeBlockchainBugEvent)
+  },
+
+  async updateBug(id: string, payload: Partial<Pick<Bug, 'status' | 'assignedTo' | 'verificationTesterEmail'>> & { userEmail?: string; userName?: string }) {
     const data = await request<{ bug: any }>(`/bugs/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
@@ -336,7 +508,7 @@ export const api = {
     return data.comments.map(normalizeComment)
   },
 
-  async createComment(bugId: string, payload: { comment: string; userEmail: string; userName: string }) {
+  async createComment(bugId: string, payload: { comment: string; userEmail: string; userName: string; parentCommentId?: string | null }) {
     const data = await request<{ comment: any }>(`/bugs/${bugId}/comments`, {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -383,10 +555,10 @@ export const api = {
     return request<{ settings: SystemSettings }>('/system-settings')
   },
 
-  async updateSystemSettings(settings: Partial<SystemSettings>) {
+  async updateSystemSettings(settings: Partial<SystemSettings>, actorRole?: UserRole) {
     return request<{ settings: SystemSettings }>('/system-settings', {
       method: 'PATCH',
-      body: JSON.stringify({ settings }),
+      body: JSON.stringify({ settings, actorRole }),
     })
   },
 
@@ -412,29 +584,30 @@ export const api = {
     return data.integrations.map(normalizeIntegration)
   },
 
-  async updateIntegration(id: string, status: Integration['status']) {
+  async updateIntegration(id: string, status: Integration['status'], actorRole?: UserRole) {
     const data = await request<{ integration: any }>(`/integrations/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, actorRole }),
     })
     return normalizeIntegration(data.integration)
   },
 
-  async exportMaintenanceData() {
-    return request<any>('/maintenance/export')
+  async exportMaintenanceData(actorRole?: UserRole) {
+    const query = actorRole ? `?actor_role=${encodeURIComponent(actorRole)}` : ''
+    return request<any>(`/maintenance/export${query}`)
   },
 
-  async clearMaintenanceData(target: 'notifications' | 'activity' | 'all') {
+  async clearMaintenanceData(target: 'notifications' | 'activity' | 'all', actorRole?: UserRole) {
     return request<{ ok: boolean }>('/maintenance/clear-data', {
       method: 'POST',
-      body: JSON.stringify({ target }),
+      body: JSON.stringify({ target, actorRole }),
     })
   },
 
-  async resetDemoData() {
+  async resetDemoData(actorRole?: UserRole) {
     return request<{ ok: boolean }>('/maintenance/reset-demo', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ actorRole }),
     })
   },
 }
