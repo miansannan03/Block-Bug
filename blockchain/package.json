@@ -1,0 +1,20 @@
+{
+  "name": "blockbug-blockchain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated blockchain workspace for BlockBug audit-trail integration.",
+  "type": "module",
+  "scripts": {
+    "hardhat": "hardhat",
+    "chain": "hardhat node",
+    "compile": "hardhat compile",
+    "deploy:local": "node scripts/deploy.js",
+    "service": "node services/audit-service.js"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^4.0.9",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.16.0",
+    "hardhat": "^3.4.1"
+  }
+}

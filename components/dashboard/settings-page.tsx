@@ -554,9 +554,10 @@ export function SettingsPage() {
                   onChange={(event) => setSystemSettings({ ...systemSettings, default_bug_priority: event.target.value as SystemSettings['default_bug_priority'] })}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 >
-                  {['low', 'medium', 'high', 'critical'].map((priority) => (
-                    <option key={priority} value={priority}>{priority}</option>
-                  ))}
+                  <option value="low">Low - Minor inconvenience</option>
+                  <option value="medium">Medium - Affects functionality</option>
+                  <option value="high">High - Major feature broken</option>
+                  <option value="critical">Critical - System unusable</option>
                 </select>
               </div>
               <div>
@@ -566,9 +567,9 @@ export function SettingsPage() {
                   onChange={(event) => setSystemSettings({ ...systemSettings, default_bug_severity: event.target.value as SystemSettings['default_bug_severity'] })}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 >
-                  {['minor', 'major', 'critical'].map((severity) => (
-                    <option key={severity} value={severity}>{severity}</option>
-                  ))}
+                  <option value="minor">Minor - Cosmetic issue</option>
+                  <option value="major">Major - Functional issue</option>
+                  <option value="critical">Critical - Data loss or security</option>
                 </select>
               </div>
               <div>

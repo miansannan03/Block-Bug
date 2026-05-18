@@ -12,9 +12,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertCircle } from 'lucide-react'
 
 export default function SignupPage() {
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [organizationName, setOrganizationName] = useState('')
+  const [organizationEmail, setOrganizationEmail] = useState('')
+  const [organizationPassword, setOrganizationPassword] = useState('')
+  const [adminName, setAdminName] = useState('')
+  const [adminEmail, setAdminEmail] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
@@ -31,7 +34,14 @@ export default function SignupPage() {
     setLoading(true)
 
     try {
-      await signup(name, email, password)
+      await signup(
+        organizationName,
+        organizationEmail,
+        organizationPassword,
+        adminName,
+        adminEmail,
+        adminPassword,
+      )
       router.push('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed')
@@ -52,10 +62,10 @@ export default function SignupPage() {
         </div>
 
         <Card className="p-8 border border-border">
-          <h1 className="text-2xl font-bold mb-2">Create Account</h1>
+          <h1 className="text-2xl font-bold mb-2">Create Organization</h1>
           <p className="text-muted-foreground mb-6">
             {settings.allow_signup
-              ? 'Start tracking bugs more effectively. New accounts are created as tester roles by default.'
+              ? 'Set up a new organization workspace. We will create the first administrator account for it.'
               : 'Public signup is currently disabled. Ask an administrator to create your account.'}
           </p>
 
@@ -68,34 +78,67 @@ export default function SignupPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Full Name</label>
+              <label className="block text-sm font-medium mb-2">Organization Name</label>
               <Input
                 type="text"
-                placeholder="John Doe"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                placeholder="Deepixel"
+                value={organizationName}
+                onChange={(e) => setOrganizationName(e.target.value)}
                 required
                 disabled={!settings.allow_signup}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Email</label>
+              <label className="block text-sm font-medium mb-2">Organization ID</label>
               <Input
                 type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder="deepixel@whatever"
+                value={organizationEmail}
+                onChange={(e) => setOrganizationEmail(e.target.value)}
                 required
                 disabled={!settings.allow_signup}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Password</label>
+              <label className="block text-sm font-medium mb-2">Organization Password</label>
               <Input
                 type="password"
-                placeholder="Create a strong password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Create an organization password"
+                value={organizationPassword}
+                onChange={(e) => setOrganizationPassword(e.target.value)}
+                required
+                disabled={!settings.allow_signup}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Administrator Name</label>
+              <Input
+                type="text"
+                placeholder="Alex Chen"
+                value={adminName}
+                onChange={(e) => setAdminName(e.target.value)}
+                required
+                disabled={!settings.allow_signup}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Administrator Email</label>
+              <Input
+                type="email"
+                placeholder="admin@deepixel.dev"
+                value={adminEmail}
+                onChange={(e) => setAdminEmail(e.target.value)}
+                required
+                disabled={!settings.allow_signup}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Administrator Password</label>
+              <Input
+                type="password"
+                placeholder="Create a strong admin password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
                 required
                 disabled={!settings.allow_signup}
               />

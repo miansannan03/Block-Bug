@@ -5,8 +5,20 @@ export interface User {
   name: string
   email: string
   role: UserRole
+  organizationId?: string | null
+  organizationName?: string | null
+  organizationEmail?: string | null
   status?: 'active' | 'inactive'
   avatar?: string
+}
+
+export interface Organization {
+  id: string
+  name: string
+  loginEmail: string
+  status: 'active' | 'inactive'
+  createdAt?: Date
+  updatedAt?: Date
 }
 
 export interface RoleDefinition {
@@ -36,6 +48,7 @@ export interface Bug {
   projectId: string
   assignedTo?: string | null
   reportedBy: string
+  verificationTesterEmail?: string | null
   stepsToReproduce?: string | null
   expectedResult?: string | null
   actualResult?: string | null
@@ -43,6 +56,28 @@ export interface Bug {
   createdAt: Date
   updatedAt: Date
   verifiedAt?: Date | null
+  blockchainLastTxHash?: string | null
+  blockchainLastSyncStatus?: 'synced' | 'failed' | null
+  blockchainLastEventId?: number | null
+  blockchainBugChainId?: string | null
+  blockchainLastSyncedAt?: Date | null
+}
+
+export interface BlockchainBugEvent {
+  id: string
+  bugId: string
+  action: string
+  syncStatus: 'pending' | 'synced' | 'failed'
+  transactionHash?: string | null
+  blockchainEventId?: number | null
+  bugChainId?: string | null
+  contractAddress?: string | null
+  createdByEmail?: string | null
+  metadataJson?: string | null
+  serviceResponse?: string | null
+  errorMessage?: string | null
+  createdAt: Date
+  updatedAt: Date
 }
 
 export interface Activity {
@@ -58,6 +93,7 @@ export interface Activity {
 export interface Comment {
   id: string
   bugId: string
+  parentCommentId?: string | null
   userEmail: string
   userName: string
   comment: string
@@ -171,6 +207,7 @@ export interface NewBugPayload {
   projectId: string
   reportedBy: string
   assignedTo?: string
+  verificationTesterEmail?: string
   stepsToReproduce?: string
   expectedResult?: string
   actualResult?: string
@@ -181,14 +218,38 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/a
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
+  const headers = new Headers(init?.headers ?? {})
+  if (!isFormData && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (typeof window !== 'undefined') {
+    const stored = window.localStorage.getItem('blockbug_user')
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as User
+        if (parsed.organizationId && !headers.has('X-Organization-Id')) {
+          headers.set('X-Organization-Id', parsed.organizationId)
+        }
+      } catch {
+        // Ignore invalid local user cache and let the request proceed normally.
+      }
+    } else {
+      const storedOrganization = window.localStorage.getItem('blockbug_organization')
+      if (storedOrganization) {
+        try {
+          const parsedOrganization = JSON.parse(storedOrganization) as Organization
+          if (parsedOrganization.id && !headers.has('X-Organization-Id')) {
+            headers.set('X-Organization-Id', parsedOrganization.id)
+          }
+        } catch {
+          // Ignore invalid organization cache and let the request proceed normally.
+        }
+      }
+    }
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: isFormData
-      ? { ...(init?.headers ?? {}) }
-      : {
-          'Content-Type': 'application/json',
-          ...(init?.headers ?? {}),
-        },
+    headers,
   })
 
   const data = await response.json().catch(() => ({}))
@@ -218,6 +279,17 @@ function normalizeBug(bug: any): Bug {
     createdAt: parseDate(bug.createdAt) || new Date(),
     updatedAt: parseDate(bug.updatedAt) || new Date(),
     verifiedAt: parseDate(bug.verifiedAt),
+    blockchainLastEventId: bug.blockchainLastEventId != null ? Number(bug.blockchainLastEventId) : null,
+    blockchainLastSyncedAt: parseDate(bug.blockchainLastSyncedAt),
+  }
+}
+
+function normalizeBlockchainBugEvent(event: any): BlockchainBugEvent {
+  return {
+    ...event,
+    blockchainEventId: event.blockchainEventId != null ? Number(event.blockchainEventId) : null,
+    createdAt: parseDate(event.createdAt) || new Date(),
+    updatedAt: parseDate(event.updatedAt) || new Date(),
   }
 }
 
@@ -267,18 +339,55 @@ function normalizeIntegration(integration: any): Integration {
   }
 }
 
+function normalizeOrganization(organization: any): Organization {
+  return {
+    ...organization,
+    createdAt: parseDate(organization.createdAt) || undefined,
+    updatedAt: parseDate(organization.updatedAt) || undefined,
+  }
+}
+
 export const api = {
-  async login(email: string, password: string) {
+  async validateOrganization(organizationEmail: string, organizationPassword: string) {
+    const data = await request<{ organization: Organization }>('/organization-login', {
+      method: 'POST',
+      body: JSON.stringify({ organizationEmail, organizationPassword }),
+    })
+    return normalizeOrganization(data.organization)
+  },
+
+  async login(organizationEmail: string, organizationPassword: string, email: string, password: string) {
     return request<{ user: User }>('/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ organizationEmail, organizationPassword, email, password }),
     })
   },
 
-  async signup(name: string, email: string, password: string) {
+  async memberLogin(organizationId: string, email: string, password: string) {
+    return request<{ user: User }>('/member-login', {
+      method: 'POST',
+      body: JSON.stringify({ organizationId, email, password }),
+    })
+  },
+
+  async signup(
+    organizationName: string,
+    organizationEmail: string,
+    organizationPassword: string,
+    adminName: string,
+    adminEmail: string,
+    adminPassword: string,
+  ) {
     return request<{ user: User }>('/signup', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify({
+        organizationName,
+        organizationEmail,
+        organizationPassword,
+        adminName,
+        adminEmail,
+        adminPassword,
+      }),
     })
   },
 
@@ -325,7 +434,7 @@ export const api = {
     return data.projects.map(normalizeProject)
   },
 
-  async createProject(payload: { name: string; description: string; key: string; teamSize: number; status?: Project['status']; actorRole?: UserRole }) {
+  async createProject(payload: { name: string; description: string; key: string; teamSize?: number; status?: Project['status']; actorRole?: UserRole }) {
     const data = await request<{ project: any }>('/projects', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -340,8 +449,18 @@ export const api = {
     })
   },
 
-  async getBugs(reportedBy?: string) {
-    const query = reportedBy ? `?reported_by=${encodeURIComponent(reportedBy)}` : ''
+  async getBugs(options?: { reportedBy?: string; actorRole?: UserRole; actorEmail?: string }) {
+    const params = new URLSearchParams()
+    if (options?.reportedBy) {
+      params.set('reported_by', options.reportedBy)
+    }
+    if (options?.actorRole) {
+      params.set('actor_role', options.actorRole)
+    }
+    if (options?.actorEmail) {
+      params.set('actor_email', options.actorEmail)
+    }
+    const query = params.toString() ? `?${params.toString()}` : ''
     const data = await request<{ bugs: any[] }>(`/bugs${query}`)
     return data.bugs.map(normalizeBug)
   },
@@ -371,7 +490,12 @@ export const api = {
     return data.attachments.map(normalizeBugAttachment)
   },
 
-  async updateBug(id: string, payload: Partial<Pick<Bug, 'status' | 'assignedTo'>> & { userEmail?: string; userName?: string }) {
+  async getBugBlockchainEvents(bugId: string) {
+    const data = await request<{ events: any[] }>(`/bugs/${bugId}/blockchain-events`)
+    return data.events.map(normalizeBlockchainBugEvent)
+  },
+
+  async updateBug(id: string, payload: Partial<Pick<Bug, 'status' | 'assignedTo' | 'verificationTesterEmail'>> & { userEmail?: string; userName?: string }) {
     const data = await request<{ bug: any }>(`/bugs/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
@@ -384,7 +508,7 @@ export const api = {
     return data.comments.map(normalizeComment)
   },
 
-  async createComment(bugId: string, payload: { comment: string; userEmail: string; userName: string }) {
+  async createComment(bugId: string, payload: { comment: string; userEmail: string; userName: string; parentCommentId?: string | null }) {
     const data = await request<{ comment: any }>(`/bugs/${bugId}/comments`, {
       method: 'POST',
       body: JSON.stringify(payload),

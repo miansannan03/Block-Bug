@@ -1,17 +1,21 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { api, type Activity, type BugStats, type DashboardData } from '@/lib/api'
-import { AlertCircle, CheckCircle2, Clock } from 'lucide-react'
+import { api, type Activity, type Bug, type BugStats, type DashboardData } from '@/lib/api'
+import { useAuth } from '@/lib/auth-context'
+import { AlertCircle, CheckCircle2, Clock, FolderOpen, RefreshCcw, UserRound } from 'lucide-react'
 import HighchartsReact from 'highcharts-react-official'
 import Highcharts from 'highcharts'
 
 interface DashboardOverviewProps {
   onNavigateToPage: (page: string) => void
+  onOpenBug?: (bugId: string) => void
 }
 
-export function DashboardOverview({ onNavigateToPage }: DashboardOverviewProps) {
+export function DashboardOverview({ onNavigateToPage, onOpenBug }: DashboardOverviewProps) {
+  const { user } = useAuth()
   const [stats, setStats] = useState<BugStats>({
     total: 0,
     open: 0,
@@ -23,17 +27,112 @@ export function DashboardOverview({ onNavigateToPage }: DashboardOverviewProps) 
   })
   const [recentActivity, setRecentActivity] = useState<Activity[]>([])
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
+  const [bugs, setBugs] = useState<Bug[]>([])
   const [error, setError] = useState('')
+  const [updatingBugId, setUpdatingBugId] = useState<string | null>(null)
+  const isDeveloper = user?.role === 'developer'
 
   useEffect(() => {
-    Promise.all([api.getStats(), api.getActivities(), api.getDashboard()])
-      .then(([statsData, activitiesData, dashboardData]) => {
+    Promise.all([api.getStats(), api.getActivities(), api.getDashboard(), api.getBugs()])
+      .then(([statsData, activitiesData, dashboardData, bugsData]) => {
         setStats(statsData)
         setRecentActivity(activitiesData.slice(0, 5))
         setDashboard(dashboardData)
+        setBugs(bugsData)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load dashboard data'))
   }, [])
+
+  const developerBugs = useMemo(() => {
+    if (!user?.email) return []
+    return bugs.filter((bug) => bug.assignedTo === user.email)
+  }, [bugs, user?.email])
+
+  const developerBugIds = useMemo(() => new Set(developerBugs.map((bug) => bug.id)), [developerBugs])
+
+  const bugsById = useMemo(() => {
+    return new Map(bugs.map((bug) => [bug.id, bug]))
+  }, [bugs])
+
+  const developerSummary = useMemo(() => {
+    const assigned = developerBugs.length
+    const open = developerBugs.filter((bug) => bug.status === 'open').length
+    const inProgress = developerBugs.filter((bug) => bug.status === 'in-progress').length
+    const resolved = developerBugs.filter((bug) => bug.status === 'resolved').length
+    return { assigned, open, inProgress, resolved }
+  }, [bugs, developerBugs])
+
+  const openAssignedBugs = useMemo(() => {
+    return developerBugs.filter((bug) => bug.status === 'open')
+  }, [developerBugs])
+
+  const developerRecentActivity = useMemo(() => {
+    return recentActivity.filter((activity) => activity.bugId && developerBugIds.has(activity.bugId)).slice(0, 5)
+  }, [developerBugIds, recentActivity])
+
+  const displayedActivity = isDeveloper ? developerRecentActivity : recentActivity
+
+  const formatActivityTypeLabel = (type: Activity['type']) => {
+    switch (type) {
+      case 'status_changed':
+        return 'Status Change'
+      case 'assigned':
+        return 'Assignment'
+      case 'verified':
+        return 'Verification'
+      case 'commented':
+        return 'Comment'
+      default:
+        return 'Activity'
+    }
+  }
+
+  const formatStatusLabel = (status: Bug['status']) => {
+    switch (status) {
+      case 'in-progress':
+        return 'In Progress'
+      default:
+        return status.charAt(0).toUpperCase() + status.slice(1)
+    }
+  }
+
+  const getActivityAgeLabel = (timestamp: Date) => {
+    const elapsedHours = Math.max(0, Math.floor((Date.now() - timestamp.getTime()) / (1000 * 60 * 60)))
+    return `${elapsedHours} hour${elapsedHours === 1 ? '' : 's'} ago`
+  }
+
+  const handleStartDeveloperBug = async (bug: Bug) => {
+    if (!user?.email || updatingBugId) return
+
+    setUpdatingBugId(bug.id)
+    setError('')
+    try {
+      const updatedBug = await api.updateBug(bug.id, {
+        status: 'in-progress',
+        userEmail: user.email,
+        userName: user.name,
+      })
+
+      setBugs((prev) => prev.map((item) => (item.id === updatedBug.id ? updatedBug : item)))
+      setRecentActivity((prev) => [
+        {
+          id: `local-${updatedBug.id}-${Date.now()}`,
+          bugId: updatedBug.id,
+          type: 'status_changed' as const,
+          userId: user.email,
+          userName: user.name,
+          message: `${user.name} moved ${updatedBug.id} to in progress`,
+          timestamp: new Date(),
+        },
+        ...prev,
+      ].slice(0, 5))
+      window.dispatchEvent(new Event('blockbug:notifications-updated'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not move the bug into progress')
+    } finally {
+      setUpdatingBugId(null)
+    }
+  }
 
   // Line chart options for bugs reported
   const lineChartOptions: Highcharts.Options = {
@@ -220,6 +319,205 @@ export function DashboardOverview({ onNavigateToPage }: DashboardOverviewProps) 
       {error && (
         <Card className="p-4 border border-destructive text-destructive">{error}</Card>
       )}
+      {isDeveloper ? (
+        <>
+          <div>
+            <h2 className="text-3xl font-bold text-foreground">My Work</h2>
+            <p className="text-muted-foreground mt-1">Stay focused on your assigned bugs and what needs your attention next.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="p-6 border border-border">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <UserRound className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{developerSummary.assigned}</p>
+                  <p className="text-sm text-muted-foreground">Assigned Bugs</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 border border-border">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-yellow-100 rounded-lg">
+                  <AlertCircle className="w-6 h-6 text-yellow-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{developerSummary.open}</p>
+                  <p className="text-sm text-muted-foreground">Open Assigned</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 border border-border">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Clock className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{developerSummary.inProgress}</p>
+                  <p className="text-sm text-muted-foreground">In Progress</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 border border-border">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <CheckCircle2 className="w-6 h-6 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{developerSummary.resolved}</p>
+                  <p className="text-sm text-muted-foreground">Waiting for Verification</p>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          <Card className="border border-amber-200/70 bg-amber-50/30 p-6 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/10">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold text-foreground">Ready to Start</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  These open bugs are already assigned to you and are waiting for you to move them into progress.
+                </p>
+              </div>
+              <span className="rounded-full border border-amber-300/70 bg-background/90 px-3 py-1 text-sm font-medium text-amber-700 dark:border-amber-800 dark:text-amber-300">
+                {openAssignedBugs.length} waiting
+              </span>
+            </div>
+
+            {openAssignedBugs.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-amber-300/70 bg-background/70 px-6 py-10 text-center text-muted-foreground dark:border-amber-800/60">
+                No open assigned bugs are waiting for you right now.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {openAssignedBugs.map((bug) => (
+                  <div
+                    key={bug.id}
+                    className="rounded-xl border border-amber-200/70 bg-background/80 p-4 shadow-sm dark:border-amber-900/40"
+                  >
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <button
+                        type="button"
+                        onClick={() => onOpenBug?.(bug.id)}
+                        className="min-w-0 flex-1 rounded-xl p-1 text-left transition hover:bg-muted/20"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-base font-semibold text-foreground">{bug.title}</p>
+                          <span className="rounded-full border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-medium text-foreground/80">
+                            {bug.id}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                          <span className="rounded-full border border-border/70 bg-background/90 px-2 py-1 font-medium text-foreground/80">
+                            Open
+                          </span>
+                          <span className="rounded-full border border-border/70 bg-background/90 px-2 py-1 font-medium text-foreground/80 capitalize">
+                            {bug.priority} priority
+                          </span>
+                          <span className="rounded-full border border-border/70 bg-background/90 px-2 py-1 font-medium text-foreground/80 capitalize">
+                            {bug.severity} severity
+                          </span>
+                          {bug.environment && (
+                            <span className="rounded-full border border-border/70 bg-background/90 px-2 py-1 font-medium text-foreground/80 capitalize">
+                              {bug.environment}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+
+                      <div className="flex items-center gap-3">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => void handleStartDeveloperBug(bug)}
+                          disabled={updatingBugId === bug.id}
+                        >
+                          {updatingBugId === bug.id ? 'Saving...' : 'Start Work'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card className="border border-border/70 bg-card p-6 shadow-sm">
+            <div className="mb-4 border-b border-border/60 pb-3">
+              <h3 className="text-xl font-semibold text-foreground">Recent Activity On My Bugs</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                A focused stream of updates tied only to the bugs currently assigned to you.
+              </p>
+            </div>
+            <div className="space-y-4">
+              {displayedActivity.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border/70 bg-muted/10 py-10 text-center text-muted-foreground">
+                  No recent activity is tied to your assigned bugs yet.
+                </div>
+              ) : (
+                displayedActivity.map((activity) => (
+                  <div key={activity.id} className="rounded-xl border border-border/70 bg-muted/10 p-4 shadow-sm transition hover:bg-muted/20">
+                    <div className="flex items-start gap-4">
+                      <div className={`mt-2 h-2.5 w-2.5 flex-shrink-0 rounded-full ${
+                        activity.type === 'status_changed' ? 'bg-blue-500' :
+                        activity.type === 'assigned' ? 'bg-purple-500' :
+                        activity.type === 'verified' ? 'bg-green-500' :
+                        activity.type === 'commented' ? 'bg-orange-500' :
+                        'bg-primary'
+                      }`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">{activity.userName}</p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.22em] text-muted-foreground/70">
+                              {formatActivityTypeLabel(activity.type)}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-border/70 bg-background/90 px-2 py-1 text-[11px] text-muted-foreground">
+                            {getActivityAgeLabel(activity.timestamp)}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">{activity.message}</p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                          {activity.bugId && bugsById.get(activity.bugId)?.title && (
+                            <span className="max-w-full truncate rounded-full border border-border/70 bg-background/90 px-2 py-1 font-medium text-foreground/85">
+                              {bugsById.get(activity.bugId)?.title}
+                            </span>
+                          )}
+                          {activity.bugId && (
+                            <span className="rounded-full border border-border/70 bg-background/90 px-2 py-1 font-medium text-foreground/80">
+                              {activity.bugId}
+                            </span>
+                          )}
+                          {activity.bugId && bugsById.get(activity.bugId)?.status && (
+                            <span className="rounded-full border border-border/70 bg-background/90 px-2 py-1 font-medium text-foreground/80">
+                              {formatStatusLabel(bugsById.get(activity.bugId)!.status)}
+                            </span>
+                          )}
+                          {activity.bugId && bugsById.get(activity.bugId)?.priority && (
+                            <span className="rounded-full border border-border/70 bg-background/90 px-2 py-1 font-medium text-foreground/80">
+                              {bugsById.get(activity.bugId)?.priority} priority
+                            </span>
+                          )}
+                          <span className="uppercase tracking-wide text-muted-foreground/80">
+                            Logged {getActivityAgeLabel(activity.timestamp)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+        </>
+      ) : (
+      <>
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="p-6 border border-border hover:border-primary hover:shadow-lg transition group">
@@ -228,7 +526,9 @@ export function DashboardOverview({ onNavigateToPage }: DashboardOverviewProps) 
               <p className="text-sm text-muted-foreground">Total Bugs</p>
               <p className="text-3xl font-bold text-foreground mt-2">{stats.total}</p>
               <p className={`text-xs mt-2 ${(dashboard?.weekDelta.percent || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {dashboard ? `${dashboard.weekDelta.percent >= 0 ? '+' : ''}${dashboard.weekDelta.percent}% from last week` : 'Loading trend'}
+                {dashboard
+                  ? `${dashboard.weekDelta.percent >= 0 ? '+' : ''}${dashboard.weekDelta.percent}% from last week`
+                  : 'Loading trend'}
               </p>
             </div>
             <div className="w-12 h-12 bg-red-500/10 rounded-lg flex items-center justify-center group-hover:bg-red-500/20 transition">
@@ -323,6 +623,9 @@ export function DashboardOverview({ onNavigateToPage }: DashboardOverviewProps) 
                 </div>
               </div>
             ))}
+            {recentActivity.length === 0 && (
+              <p className="text-sm text-muted-foreground">No recent activity yet.</p>
+            )}
           </div>
         </Card>
 
@@ -356,6 +659,8 @@ export function DashboardOverview({ onNavigateToPage }: DashboardOverviewProps) 
           </div>
         </Card>
       </div>
+      </>
+      )}
     </div>
   )
 }

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { BarChart3, Bug, FolderOpen, Settings, Home, Moon, Sun, HelpCircle, Users, Plug } from 'lucide-react'
+import { BarChart3, Bug, FolderOpen, Settings, Home, Moon, Sun, HelpCircle, Users } from 'lucide-react'
 import type { UserRole } from '@/lib/api'
 import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
 import { useTheme } from 'next-themes'
@@ -29,6 +29,7 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
       return [
         { id: 'overview', label: 'My Dashboard', icon: Home },
         { id: 'bugs', label: 'Bug Reports', icon: Bug },
+        { id: 'projects', label: 'Projects', icon: FolderOpen },
         { id: 'settings', label: 'Settings', icon: Settings },
       ]
     }
@@ -47,8 +48,9 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
     }
 
     return [
-      ...baseItems.slice(0, 5),
-      { id: 'integrations', label: 'Integrations', icon: Plug },
+      baseItems[0],
+      baseItems[1],
+      baseItems[3],
       baseItems[5],
     ]
   }
@@ -56,10 +58,13 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
   const menuItems = getMenuItems()
 
   return (
-    <div className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
+    <div className="w-64 border-r border-sidebar-border bg-sidebar/90 flex flex-col backdrop-blur-sm">
       {/* Logo */}
       <div className="p-6 border-b border-sidebar-border">
-        <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition">
+        <Link
+          href="/"
+          className="flex items-center gap-3 rounded-xl border border-sidebar-border/80 bg-sidebar-accent/60 px-4 py-3 hover:bg-sidebar-accent/70 transition"
+        >
           <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center shadow-lg">
             <span className="text-sidebar-primary-foreground font-bold text-lg">{getAppInitial(settings.app_name)}</span>
           </div>
@@ -97,7 +102,7 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
       <div className="p-4 border-t border-sidebar-border space-y-3">
         <button
           onClick={() => setTheme(currentTheme === 'dark' ? 'light' : 'dark')}
-          className="w-full flex items-center justify-between px-3 py-2 hover:bg-sidebar-accent/50 rounded-lg transition"
+          className="w-full flex items-center justify-between rounded-xl border border-sidebar-border/80 bg-sidebar-accent/60 px-3 py-3 hover:bg-sidebar-accent/70 transition"
         >
           <span className="text-xs font-medium text-sidebar-foreground">Theme</span>
           {currentTheme === 'dark' ? (
