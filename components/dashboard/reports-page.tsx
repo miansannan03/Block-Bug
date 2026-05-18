@@ -79,7 +79,7 @@ export function ReportsPage() {
         type: 'bar',
         name: 'Avg Resolution Time',
         data: report.resolutionTimes.map((item) => item.days),
-        color: '#7c3aed',
+        color: '#7c70f3',
       },
     ],
     tooltip: {
@@ -175,7 +175,7 @@ export function ReportsPage() {
           priorityBugCounts.medium || 0,
           priorityBugCounts.low || 0,
         ],
-        color: '#6366f1',
+        color: '#7c70f3',
       },
     ],
     tooltip: {

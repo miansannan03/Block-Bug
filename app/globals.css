@@ -10,33 +10,35 @@
   --card-foreground: oklch(0.15 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.15 0 0);
-  --primary: oklch(0.35 0.15 280);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.48 0.12 250);
-  --secondary-foreground: oklch(0.98 0 0);
+  --primary: #5b4cf0;
+  --primary-hover: #4d41cc;
+  --primary-neon: #6957f8;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f4f6;
+  --secondary-foreground: #171717;
   --muted: oklch(0.92 0 0);
   --muted-foreground: oklch(0.55 0 0);
-  --accent: oklch(0.55 0.18 260);
-  --accent-foreground: oklch(0.98 0 0);
+  --accent: #4d41cc;
+  --accent-foreground: #ffffff;
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.98 0 0);
   --border: oklch(0.92 0.01 280);
   --input: oklch(0.96 0 0);
-  --ring: oklch(0.55 0.18 260);
-  --chart-1: oklch(0.55 0.18 260);
-  --chart-2: oklch(0.48 0.12 250);
+  --ring: #5b4cf0;
+  --chart-1: #5b4cf0;
+  --chart-2: #4d41cc;
   --chart-3: oklch(0.65 0.15 200);
   --chart-4: oklch(0.75 0.12 150);
   --chart-5: oklch(0.60 0.10 180);
   --radius: 0.625rem;
   --sidebar: oklch(0.98 0 0);
   --sidebar-foreground: oklch(0.15 0 0);
-  --sidebar-primary: oklch(0.35 0.15 280);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-primary: #5b4cf0;
+  --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: oklch(0.92 0 0);
-  --sidebar-accent-foreground: oklch(0.35 0.15 280);
+  --sidebar-accent-foreground: #5b4cf0;
   --sidebar-border: oklch(0.92 0.01 280);
-  --sidebar-ring: oklch(0.55 0.18 260);
+  --sidebar-ring: #5b4cf0;
 }
 
 .dark {
@@ -46,32 +48,34 @@
   --card-foreground: oklch(0.95 0 0);
   --popover: oklch(0.16 0 0);
   --popover-foreground: oklch(0.95 0 0);
-  --primary: oklch(0.65 0.18 260);
-  --primary-foreground: oklch(0.12 0 0);
-  --secondary: oklch(0.55 0.15 250);
-  --secondary-foreground: oklch(0.95 0 0);
+  --primary: #7c70f3;
+  --primary-hover: #9d94f6;
+  --primary-neon: #a79fff;
+  --primary-foreground: #0f0f14;
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
   --muted: oklch(0.28 0 0);
   --muted-foreground: oklch(0.70 0 0);
-  --accent: oklch(0.65 0.18 260);
-  --accent-foreground: oklch(0.12 0 0);
+  --accent: #9d94f6;
+  --accent-foreground: #0f0f14;
   --destructive: oklch(0.60 0.20 25);
   --destructive-foreground: oklch(0.95 0 0);
   --border: oklch(0.25 0.02 280);
   --input: oklch(0.20 0 0);
-  --ring: oklch(0.65 0.18 260);
-  --chart-1: oklch(0.65 0.18 260);
-  --chart-2: oklch(0.55 0.15 250);
+  --ring: #7c70f3;
+  --chart-1: #7c70f3;
+  --chart-2: #9d94f6;
   --chart-3: oklch(0.70 0.12 200);
   --chart-4: oklch(0.75 0.12 150);
   --chart-5: oklch(0.65 0.12 180);
   --sidebar: oklch(0.15 0 0);
   --sidebar-foreground: oklch(0.95 0 0);
-  --sidebar-primary: oklch(0.65 0.18 260);
-  --sidebar-primary-foreground: oklch(0.95 0 0);
+  --sidebar-primary: #7c70f3;
+  --sidebar-primary-foreground: #0f0f14;
   --sidebar-accent: oklch(0.25 0 0);
   --sidebar-accent-foreground: oklch(0.95 0 0);
   --sidebar-border: oklch(0.25 0.02 280);
-  --sidebar-ring: oklch(0.65 0.18 260);
+  --sidebar-ring: #7c70f3;
 }
 
 @theme inline {
@@ -84,6 +88,7 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -132,20 +137,231 @@
 }
 
 @layer components {
-  button[aria-live='polite']:has(.lucide-copy) {
-    border-color: color-mix(in oklch, var(--primary) 48%, transparent);
-    background: color-mix(in oklch, var(--primary) 12%, transparent);
-    color: var(--primary);
-    box-shadow: 0 4px 14px color-mix(in oklch, var(--primary) 12%, transparent);
-    transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  .primary-neon-surface,
+  .primary-neon-control {
+    border: 1px solid color-mix(in srgb, var(--primary-neon) 62%, transparent);
+    background-color: var(--primary);
+    background-image: linear-gradient(
+      110deg,
+      var(--primary-hover) 0%,
+      var(--primary) 30%,
+      var(--primary-neon) 52%,
+      var(--primary) 74%,
+      var(--primary-hover) 100%
+    );
+    background-position: 100% 50%;
+    background-size: 180% 100%;
+    color: var(--primary-foreground);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 38%, transparent),
+      0 0 12px color-mix(in srgb, var(--primary) 30%, transparent),
+      0 5px 16px color-mix(in srgb, var(--primary-hover) 20%, transparent);
   }
 
-  button[aria-live='polite']:has(.lucide-copy):hover {
+  .primary-neon-control {
+    transition: background-position 240ms ease, box-shadow 240ms ease, transform 240ms ease;
+  }
+
+  .primary-neon-control:hover:not(:disabled) {
+    background-position: 0 50%;
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 48%, transparent),
+      0 0 18px color-mix(in srgb, var(--primary-neon) 42%, transparent),
+      0 8px 22px color-mix(in srgb, var(--primary) 28%, transparent);
+    transform: translateY(-1px);
+  }
+
+  .primary-neon-control:active:not(:disabled) {
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 32%, transparent),
+      0 0 12px color-mix(in srgb, var(--primary-neon) 34%, transparent);
+    transform: translateY(0);
+  }
+
+  .primary-neon-control:disabled {
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 24%, transparent);
+    filter: saturate(0.72);
+  }
+
+  .neon-soft-control,
+  .neon-soft-field,
+  .neon-tabs-list {
+    border: 1px solid color-mix(in srgb, var(--neon-color, var(--primary)) 42%, var(--border));
+    background-color: color-mix(in srgb, var(--neon-color, var(--primary)) 5%, var(--background));
+    background-image: linear-gradient(
+      110deg,
+      color-mix(in srgb, var(--neon-color, var(--primary-hover)) 7%, var(--background)) 0%,
+      color-mix(in srgb, var(--neon-color, var(--primary)) 10%, var(--background)) 30%,
+      color-mix(in srgb, var(--neon-highlight, var(--primary-neon)) 20%, var(--background)) 52%,
+      color-mix(in srgb, var(--neon-color, var(--primary)) 9%, var(--background)) 74%,
+      color-mix(in srgb, var(--neon-color, var(--primary-hover)) 7%, var(--background)) 100%
+    );
+    background-position: 100% 50%;
+    background-size: 180% 100%;
+    color: var(--foreground);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 16%, transparent),
+      0 0 10px color-mix(in srgb, var(--neon-color, var(--primary)) 14%, transparent);
+  }
+
+  .neon-soft-control,
+  .neon-soft-field,
+  .neon-tab-control {
+    transition: background-position 220ms ease, border-color 220ms ease, box-shadow 220ms ease, color 220ms ease, transform 220ms ease;
+  }
+
+  .neon-soft-control:hover:not(:disabled),
+  .neon-soft-field:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--neon-highlight, var(--primary-neon)) 70%, var(--border));
+    background-position: 0 50%;
+    color: var(--foreground);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 24%, transparent),
+      0 0 15px color-mix(in srgb, var(--neon-highlight, var(--primary-neon)) 28%, transparent);
+  }
+
+  .neon-soft-control:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .neon-soft-control:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  .neon-soft-control:disabled,
+  .neon-soft-field:disabled {
+    box-shadow: none;
+  }
+
+  .neon-danger-control {
+    --neon-color: #dc2626;
+    --neon-highlight: #ef4444;
+    color: #b91c1c;
+  }
+
+  .neon-danger-control:hover:not(:disabled) {
+    color: #b91c1c;
+  }
+
+  .dark .neon-danger-control,
+  .dark .neon-danger-control:hover:not(:disabled) {
+    --neon-color: #f87171;
+    --neon-highlight: #fca5a5;
+    color: #fca5a5;
+  }
+
+  .neon-soft-control[aria-pressed='true'] {
     border-color: var(--primary);
-    background: var(--primary);
-    color: oklch(0.98 0 0);
-    box-shadow: 0 10px 26px color-mix(in oklch, var(--primary) 30%, transparent);
-    transform: translateY(-2px);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--primary) 40%, transparent),
+      0 0 16px color-mix(in srgb, var(--primary) 25%, transparent);
+  }
+
+  .neon-amber-control {
+    --neon-color: #d97706;
+    --neon-highlight: #fbbf24;
+  }
+
+  .neon-green-control {
+    --neon-color: #16a34a;
+    --neon-highlight: #4ade80;
+  }
+
+  .neon-soft-field:focus-visible {
+    background-position: 0 50%;
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 24%, transparent),
+      0 0 0 3px color-mix(in srgb, var(--ring) 24%, transparent),
+      0 0 18px color-mix(in srgb, var(--primary-neon) 30%, transparent);
+  }
+
+  .neon-ghost-control {
+    border: 1px solid transparent;
+    background: transparent;
+    color: inherit;
+  }
+
+  .neon-ghost-control:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--primary) 30%, transparent);
+    background-color: color-mix(in srgb, var(--primary) 9%, transparent);
+    background-image: linear-gradient(
+      110deg,
+      color-mix(in srgb, var(--primary) 5%, transparent),
+      color-mix(in srgb, var(--primary-neon) 18%, transparent),
+      color-mix(in srgb, var(--primary) 5%, transparent)
+    );
+    color: var(--foreground);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 18%, transparent);
+  }
+
+  .neon-tab-control {
+    border-color: transparent;
+    color: var(--foreground);
+  }
+
+  .neon-tab-control:hover:not(:disabled):not([data-state='active']) {
+    border-color: color-mix(in srgb, var(--primary) 32%, transparent);
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+    color: var(--foreground);
+  }
+
+  .neon-select-content {
+    border: 1px solid color-mix(in srgb, var(--primary-neon) 55%, var(--border));
+    background-color: var(--popover);
+    background-image: linear-gradient(
+      110deg,
+      color-mix(in srgb, var(--primary) 7%, var(--popover)),
+      color-mix(in srgb, var(--primary-neon) 16%, var(--popover)),
+      color-mix(in srgb, var(--primary) 7%, var(--popover))
+    );
+    color: var(--popover-foreground);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 18%, transparent),
+      0 0 18px color-mix(in srgb, var(--primary) 24%, transparent),
+      0 8px 24px color-mix(in srgb, black 24%, transparent);
+  }
+
+  .neon-select-item {
+    border: 1px solid transparent;
+    color: var(--popover-foreground);
+    transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  .neon-select-item[data-highlighted]:not([data-disabled]) {
+    border-color: color-mix(in srgb, var(--primary-neon) 55%, transparent);
+    background-image: linear-gradient(
+      110deg,
+      color-mix(in srgb, var(--primary) 14%, var(--popover)),
+      color-mix(in srgb, var(--primary-neon) 30%, var(--popover)),
+      color-mix(in srgb, var(--primary) 14%, var(--popover))
+    );
+    box-shadow: inset 0 0 10px color-mix(in srgb, var(--primary) 12%, transparent);
+  }
+
+  .neon-tab-control[data-state='active'],
+  .neon-select-item[data-state='checked'],
+  .neon-select-item[data-state='checked'][data-highlighted]:not([data-disabled]) {
+    border-color: color-mix(in srgb, var(--primary-neon) 62%, transparent);
+    background-color: var(--primary);
+    background-image: linear-gradient(
+      110deg,
+      var(--primary-hover) 0%,
+      var(--primary) 30%,
+      var(--primary-neon) 52%,
+      var(--primary) 74%,
+      var(--primary-hover) 100%
+    );
+    background-position: 100% 50%;
+    background-size: 180% 100%;
+    color: var(--primary-foreground);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 38%, transparent),
+      0 0 14px color-mix(in srgb, var(--primary) 34%, transparent);
+  }
+
+  .neon-select-item[data-state='checked'][data-highlighted]:not([data-disabled]) {
+    border-color: var(--primary-neon);
+    background-position: 0% 50%;
   }
 
   button[aria-live='polite']:has(.lucide-copy) svg {
@@ -156,54 +372,28 @@
     transform: rotate(-5deg) scale(1.12);
   }
 
+  .action-feedback-button[data-complete='true'],
   button[aria-live='polite']:has(.lucide-check) {
-    border-color: color-mix(in oklch, oklch(0.72 0.18 155) 65%, transparent);
-    background: color-mix(in oklch, oklch(0.72 0.18 155) 18%, transparent);
-    color: oklch(0.72 0.18 155);
-    box-shadow: 0 6px 20px color-mix(in oklch, oklch(0.72 0.18 155) 20%, transparent);
+    border-color: color-mix(in srgb, var(--neon-color, var(--primary)) 65%, transparent);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--neon-color, var(--primary)) 28%, transparent);
   }
 
-  button[aria-live='polite']:has(.lucide-check):hover {
-    background: color-mix(in oklch, oklch(0.72 0.18 155) 26%, transparent);
-    color: oklch(0.82 0.16 155);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primary-neon-control,
+  .neon-soft-control,
+  .neon-soft-field,
+  .neon-tab-control,
+  .neon-select-item {
+    transition: none;
   }
 
-  .dark button[aria-live='polite']:has(.lucide-copy),
-  .dark button[aria-live='polite']:has(.lucide-check) {
-    border-color: color-mix(in oklch, var(--primary) 42%, transparent) !important;
-    background: color-mix(in oklch, var(--primary) 8%, transparent) !important;
-    color: oklch(0.98 0 0) !important;
-  }
-
-  .dark button[aria-live='polite']:has(.lucide-copy):hover,
-  .dark button[aria-live='polite']:has(.lucide-check):hover {
-    border-color: var(--primary) !important;
-    background: color-mix(in oklch, var(--primary) 18%, transparent) !important;
-    color: var(--primary) !important;
-    box-shadow: 0 10px 26px color-mix(in oklch, var(--primary) 28%, transparent);
-  }
-
-  .action-feedback-button {
-    transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-  }
-
-  .dark .action-feedback-button {
-    border-color: color-mix(in oklch, var(--primary) 42%, transparent) !important;
-    background: color-mix(in oklch, var(--primary) 8%, transparent) !important;
-    color: oklch(0.98 0 0) !important;
-  }
-
-  .dark .action-feedback-button:hover:not(:disabled) {
-    border-color: var(--primary) !important;
-    background: color-mix(in oklch, var(--primary) 18%, transparent) !important;
-    color: var(--primary) !important;
-    box-shadow: 0 10px 26px color-mix(in oklch, var(--primary) 28%, transparent);
-    transform: translateY(-2px);
-  }
-
-  .dark .action-feedback-button[data-complete='true'] {
-    border-color: color-mix(in oklch, var(--primary) 65%, transparent) !important;
-    box-shadow: 0 6px 20px color-mix(in oklch, var(--primary) 22%, transparent);
+  .primary-neon-control:hover:not(:disabled),
+  .primary-neon-control:active:not(:disabled),
+  .neon-soft-control:hover:not(:disabled),
+  .neon-soft-control:active:not(:disabled) {
+    transform: none;
   }
 }
 

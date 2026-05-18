@@ -214,7 +214,7 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
 
   const stageMeta: Array<{ key: Bug['status']; label: string; icon: typeof CircleDot; tone: string }> = [
     { key: 'open', label: 'Open', icon: CircleDot, tone: 'text-red-500' },
-    { key: 'in-progress', label: 'In Progress', icon: Clock3, tone: 'text-blue-500' },
+    { key: 'in-progress', label: 'In Progress', icon: Clock3, tone: 'text-amber-500' },
     { key: 'resolved', label: 'Resolved', icon: CheckCircle2, tone: 'text-emerald-500' },
     { key: 'closed', label: 'Closed', icon: Layers3, tone: 'text-slate-500' },
   ]
@@ -327,14 +327,13 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
           <div className="mb-4 flex items-center justify-between gap-3">
             <button
               onClick={() => setSelectedProject(null)}
-              className="group inline-flex items-center gap-2.5 rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/12 via-primary/8 to-accent/12 px-4 py-2.5 text-sm font-semibold text-primary shadow-sm ring-1 ring-primary/8 transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:from-primary/18 hover:via-primary/12 hover:to-accent/18 hover:shadow-md hover:ring-primary/15"
+              className="neon-soft-control inline-flex items-center gap-2.5 rounded-2xl px-4 py-2.5 text-sm font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
               ← Back to Projects
             </button>
             {isAdmin && (
               <Button
-                variant="outline"
-                className="border-red-500/30 text-red-600 hover:bg-red-500/10"
+                variant="destructive-outline"
                 onClick={() => void deleteProject(selectedProject)}
                 disabled={deletingProjectId === selectedProject.id}
               >
@@ -464,7 +463,7 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Planned Sprints</p>
                     <p className="mt-2 text-2xl font-semibold text-foreground">{plannedSprints.length}</p>
                   </div>
-                  <CalendarRange className="h-5 w-5 text-blue-500" />
+                  <CalendarRange className="h-5 w-5 text-primary" />
                 </div>
                 <p className="mt-3 text-xs text-muted-foreground">
                   Only one sprint can be active at a time in this project. {completedSprints.length} completed so far.
@@ -641,11 +640,8 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
                   <button
                     type="button"
                     onClick={() => setCompletionAction('backlog')}
-                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                      completionAction === 'backlog'
-                        ? 'border-primary/40 bg-primary/10'
-                        : 'border-border/70 bg-background hover:bg-muted/10'
-                    }`}
+                    aria-pressed={completionAction === 'backlog'}
+                    className="neon-soft-control w-full rounded-xl px-4 py-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                   >
                     <p className="text-sm font-semibold text-foreground">Move unfinished bugs to backlog</p>
                     <p className="mt-1 text-xs text-muted-foreground">Use this when the work should be replanned later.</p>
@@ -653,11 +649,8 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
                   <button
                     type="button"
                     onClick={() => setCompletionAction('another_sprint')}
-                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                      completionAction === 'another_sprint'
-                        ? 'border-primary/40 bg-primary/10'
-                        : 'border-border/70 bg-background hover:bg-muted/10'
-                    }`}
+                    aria-pressed={completionAction === 'another_sprint'}
+                    className="neon-soft-control w-full rounded-xl px-4 py-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                   >
                     <p className="text-sm font-semibold text-foreground">Move unfinished bugs to another sprint</p>
                     <p className="mt-1 text-xs text-muted-foreground">Use this when the work should carry forward immediately.</p>
@@ -828,8 +821,8 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
                     <div className="pt-3">
                       <Button
                         type="button"
-                        variant="outline"
-                        className="w-full border-red-500/30 text-red-600 hover:bg-red-500/10"
+                        variant="destructive-outline"
+                        className="w-full"
                         onClick={(event) => {
                           event.stopPropagation()
                           void deleteProject(project)

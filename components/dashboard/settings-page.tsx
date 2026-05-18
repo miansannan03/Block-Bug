@@ -7,6 +7,7 @@ import { defaultSystemSettings, formatDateWithSettings } from '@/lib/system-sett
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const preferenceLabels = [
   { key: 'email_notifications', name: 'Email notifications', description: 'Keep update alerts on for assignments, comments, and summaries' },
@@ -318,7 +319,7 @@ export function SettingsPage() {
       )}
 
       {activeAction && (
-        <Card className="p-4 border border-blue-200 bg-blue-50 text-blue-700">
+        <Card className="border border-primary/20 bg-primary/5 p-4 text-primary">
           Saving changes...
         </Card>
       )}
@@ -411,15 +412,17 @@ export function SettingsPage() {
                       <td className="py-4 pr-4 font-medium text-foreground">{member.name}</td>
                       <td className="py-4 pr-4 text-sm text-muted-foreground">{member.email}</td>
                       <td className="py-4 pr-4">
-                        <select
+                        <Select
                           value={member.role}
-                          onChange={(event) => updateMember(member, { role: event.target.value as UserRole })}
-                          className="rounded-md border border-border bg-background px-2 py-1 text-sm capitalize"
+                          onValueChange={(value) => updateMember(member, { role: value as UserRole })}
                         >
-                          {(['admin', 'manager', 'developer', 'tester'] as UserRole[]).map((role) => (
-                            <option key={role} value={role}>{role}</option>
-                          ))}
-                        </select>
+                          <SelectTrigger size="sm" aria-label={`Role for ${member.name}`} className="capitalize"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {(['admin', 'manager', 'developer', 'tester'] as UserRole[]).map((role) => (
+                              <SelectItem key={role} value={role} className="capitalize">{role}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </td>
                       <td className="py-4 pr-4 text-sm capitalize">{member.status}</td>
                       <td className="py-4 pr-4">
@@ -470,52 +473,60 @@ export function SettingsPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Default Bug Status</label>
-                <select
+                <Select
                   value={systemSettings.default_bug_status}
-                  onChange={(event) => setSystemSettings({ ...systemSettings, default_bug_status: event.target.value as SystemSettings['default_bug_status'] })}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  onValueChange={(value) => setSystemSettings({ ...systemSettings, default_bug_status: value as SystemSettings['default_bug_status'] })}
                 >
-                  {['open', 'in-progress', 'resolved', 'closed'].map((status) => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
+                  <SelectTrigger aria-label="Default Bug Status" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['open', 'in-progress', 'resolved', 'closed'].map((status) => (
+                      <SelectItem key={status} value={status}>{status}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Default Priority</label>
-                <select
+                <Select
                   value={systemSettings.default_bug_priority}
-                  onChange={(event) => setSystemSettings({ ...systemSettings, default_bug_priority: event.target.value as SystemSettings['default_bug_priority'] })}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  onValueChange={(value) => setSystemSettings({ ...systemSettings, default_bug_priority: value as SystemSettings['default_bug_priority'] })}
                 >
-                  <option value="low">Low - Minor inconvenience</option>
-                  <option value="medium">Medium - Affects functionality</option>
-                  <option value="high">High - Major feature broken</option>
-                  <option value="critical">Critical - System unusable</option>
-                </select>
+                  <SelectTrigger aria-label="Default Priority" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low - Minor inconvenience</SelectItem>
+                    <SelectItem value="medium">Medium - Affects functionality</SelectItem>
+                    <SelectItem value="high">High - Major feature broken</SelectItem>
+                    <SelectItem value="critical">Critical - System unusable</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Default Severity</label>
-                <select
+                <Select
                   value={systemSettings.default_bug_severity}
-                  onChange={(event) => setSystemSettings({ ...systemSettings, default_bug_severity: event.target.value as SystemSettings['default_bug_severity'] })}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  onValueChange={(value) => setSystemSettings({ ...systemSettings, default_bug_severity: value as SystemSettings['default_bug_severity'] })}
                 >
-                  <option value="minor">Minor - Cosmetic issue</option>
-                  <option value="major">Major - Functional issue</option>
-                  <option value="critical">Critical - Data loss or security</option>
-                </select>
+                  <SelectTrigger aria-label="Default Severity" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="minor">Minor - Cosmetic issue</SelectItem>
+                    <SelectItem value="major">Major - Functional issue</SelectItem>
+                    <SelectItem value="critical">Critical - Data loss or security</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Default Assignee Rule</label>
-                <select
+                <Select
                   value={systemSettings.default_assignee_rule}
-                  onChange={(event) => setSystemSettings({ ...systemSettings, default_assignee_rule: event.target.value })}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  onValueChange={(value) => setSystemSettings({ ...systemSettings, default_assignee_rule: value })}
                 >
-                  <option value="unassigned">Leave unassigned</option>
-                  <option value="reporter">Assign to reporter</option>
-                  <option value="project-lead">Assign to project lead</option>
-                </select>
+                  <SelectTrigger aria-label="Default Assignee Rule" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Leave unassigned</SelectItem>
+                    <SelectItem value="reporter">Assign to reporter</SelectItem>
+                    <SelectItem value="project-lead">Assign to project lead</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <Button className="mt-6" onClick={handleSystemSettingsSave} disabled={isBusy('project-defaults')}>
@@ -568,17 +579,19 @@ export function SettingsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Default Dashboard View</label>
-                <select
+                <Select
                   value={systemSettings.dashboard_default_view}
-                  onChange={(event) => setSystemSettings({ ...systemSettings, dashboard_default_view: event.target.value })}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  onValueChange={(value) => setSystemSettings({ ...systemSettings, dashboard_default_view: value })}
                 >
-                  <option value="overview">Overview</option>
-                  <option value="bugs">Bugs</option>
-                  <option value="reports">Reports</option>
-                  <option value="projects">Projects</option>
-                  <option value="team">Team</option>
-                </select>
+                  <SelectTrigger aria-label="Default Dashboard View" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="overview">Overview</SelectItem>
+                    <SelectItem value="bugs">Bugs</SelectItem>
+                    <SelectItem value="reports">Reports</SelectItem>
+                    <SelectItem value="projects">Projects</SelectItem>
+                    <SelectItem value="team">Team</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Session Timeout (minutes)</label>

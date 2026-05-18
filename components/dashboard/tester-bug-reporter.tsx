@@ -113,7 +113,7 @@ export function TesterBugReporter() {
       case 'open':
         return <AlertTriangle className="w-4 h-4 text-red-500" />
       case 'in-progress':
-        return <Clock className="w-4 h-4 text-blue-500" />
+        return <Clock className="w-4 h-4 text-amber-500" />
       case 'resolved':
         return <CheckCircle2 className="w-4 h-4 text-green-500" />
       case 'closed':
@@ -495,8 +495,8 @@ export function TesterBugReporter() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="p-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <BugIcon className="w-6 h-6 text-blue-600" />
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <BugIcon className="w-6 h-6 text-primary" />
             </div>
             <div>
               <p className="text-2xl font-bold">{stats.totalReported}</p>
@@ -546,7 +546,7 @@ export function TesterBugReporter() {
         <Card className="border border-border/70 bg-card p-8 shadow-sm">
           <button
             onClick={() => setSelectedBug(null)}
-            className="mb-6 inline-flex w-fit max-w-fit shrink-0 items-center gap-2 self-start rounded-2xl border border-primary/20 bg-slate-100 px-4 py-2 text-sm font-semibold text-primary shadow-[0_2px_10px_rgba(37,99,235,0.08)] transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-slate-50 hover:text-primary hover:shadow-[0_6px_18px_rgba(37,99,235,0.12)] dark:bg-slate-900/70 dark:hover:bg-slate-900"
+            className="neon-soft-control mb-6 inline-flex w-fit max-w-fit shrink-0 items-center gap-2 self-start rounded-2xl px-4 py-2 text-sm font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to My Reports
