@@ -44,6 +44,11 @@ function project_record(array $project): array
     return $project;
 }
 
+function sprint_record(array $sprint): array
+{
+    return camelize_record($sprint);
+}
+
 function bug_record(array $bug): array
 {
     return camelize_record($bug);
@@ -588,6 +593,107 @@ function require_admin_actor(array $data = []): void
         json_response(['message' => 'This action is available to administrators only.'], 403);
         exit;
     }
+}
+
+function require_manager_or_admin_actor(array $data = []): void
+{
+    if (!in_array(actor_role_from_request($data), ['admin', 'manager'], true)) {
+        json_response(['message' => 'This action is available to administrators and managers only.'], 403);
+        exit;
+    }
+}
+
+function actor_email_from_request(array $data = []): ?string
+{
+    $queryEmail = $_GET['user_email'] ?? null;
+    $bodyEmail = $data['userEmail'] ?? null;
+    $email = is_string($bodyEmail) ? $bodyEmail : (is_string($queryEmail) ? $queryEmail : null);
+    return $email !== null && $email !== '' ? $email : null;
+}
+
+function validate_sprint_dates(string $startDate, string $endDate): void
+{
+    $start = strtotime($startDate);
+    $end = strtotime($endDate);
+
+    if ($start === false || $end === false) {
+        json_response(['message' => 'Sprint dates are invalid.'], 422);
+        exit;
+    }
+
+    if ($end < $start) {
+        json_response(['message' => 'Sprint end date must be on or after the start date.'], 422);
+        exit;
+    }
+}
+
+function ensure_project_exists(PDO $pdo, string $projectId, string $organizationId): array
+{
+    $projectStmt = $pdo->prepare('SELECT * FROM projects WHERE id = ? AND org_id = ? LIMIT 1');
+    $projectStmt->execute([$projectId, $organizationId]);
+    $project = $projectStmt->fetch();
+    if (!$project) {
+        json_response(['message' => 'Project not found for this organization.'], 404);
+        exit;
+    }
+
+    return $project;
+}
+
+function ensure_sprint_exists(PDO $pdo, string $sprintId, string $organizationId): array
+{
+    $sprintStmt = $pdo->prepare('SELECT * FROM sprints WHERE id = ? AND org_id = ? LIMIT 1');
+    $sprintStmt->execute([$sprintId, $organizationId]);
+    $sprint = $sprintStmt->fetch();
+    if (!$sprint) {
+        json_response(['message' => 'Sprint not found for this organization.'], 404);
+        exit;
+    }
+
+    return $sprint;
+}
+
+function ensure_project_can_activate_sprint(PDO $pdo, string $projectId, string $organizationId, ?string $excludeSprintId = null): void
+{
+    $sql = 'SELECT id FROM sprints WHERE project_id = ? AND org_id = ? AND status = "active"';
+    $params = [$projectId, $organizationId];
+    if ($excludeSprintId !== null) {
+        $sql .= ' AND id <> ?';
+        $params[] = $excludeSprintId;
+    }
+    $sql .= ' LIMIT 1';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    if ($stmt->fetch()) {
+        json_response(['message' => 'Only one active sprint is allowed per project.'], 422);
+        exit;
+    }
+}
+
+function record_sprint_bug_history(
+    PDO $pdo,
+    string $organizationId,
+    string $bugId,
+    ?string $fromSprintId,
+    ?string $toSprintId,
+    ?string $movedBy,
+    string $reason
+): void
+{
+    $stmt = $pdo->prepare(
+        'INSERT INTO sprint_bug_history (id, org_id, bug_id, from_sprint_id, to_sprint_id, moved_by, reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([
+        'sbh-' . bin2hex(random_bytes(6)),
+        $organizationId,
+        $bugId,
+        $fromSprintId,
+        $toSprintId,
+        $movedBy,
+        $reason,
+    ]);
 }
 
 function blockchain_service_url(): ?string
@@ -1172,7 +1278,7 @@ try {
         exit;
     }
 
-    if ($method === 'GET' && ($segments[0] ?? '') === 'projects') {
+    if ($method === 'GET' && ($segments[0] ?? '') === 'projects' && !isset($segments[1])) {
         $stmt = $pdo->prepare('SELECT id, name, description, project_key, status, team_size, created_at, updated_at FROM projects WHERE org_id = ? ORDER BY created_at DESC');
         $stmt->execute([$organizationId]);
         $projects = $stmt->fetchAll();
@@ -1180,7 +1286,224 @@ try {
         exit;
     }
 
-    if ($method === 'POST' && ($segments[0] ?? '') === 'projects') {
+    if ($method === 'GET' && ($segments[0] ?? '') === 'projects' && isset($segments[1]) && ($segments[2] ?? '') === 'sprints') {
+        ensure_project_exists($pdo, (string) $segments[1], $organizationId);
+        $stmt = $pdo->prepare(
+            'SELECT * FROM sprints
+             WHERE project_id = ? AND org_id = ?
+             ORDER BY FIELD(status, "active", "planned", "completed", "cancelled"), start_date DESC, created_at DESC'
+        );
+        $stmt->execute([$segments[1], $organizationId]);
+        json_response(['sprints' => array_map('sprint_record', $stmt->fetchAll())]);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[0] ?? '') === 'projects' && isset($segments[1]) && ($segments[2] ?? '') === 'sprints') {
+        $data = read_json();
+        require_manager_or_admin_actor($data);
+        require_fields($data, ['name', 'startDate', 'endDate']);
+
+        $project = ensure_project_exists($pdo, (string) $segments[1], $organizationId);
+        validate_sprint_dates((string) $data['startDate'], (string) $data['endDate']);
+
+        $status = in_array(($data['status'] ?? 'planned'), ['planned', 'active', 'completed', 'cancelled'], true)
+            ? (string) $data['status']
+            : 'planned';
+        if ($status === 'active') {
+            ensure_project_can_activate_sprint($pdo, (string) $segments[1], $organizationId);
+        }
+
+        $id = 'spr-' . bin2hex(random_bytes(6));
+        $stmt = $pdo->prepare(
+            'INSERT INTO sprints (id, org_id, project_id, name, goal, status, start_date, end_date, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $id,
+            $organizationId,
+            $segments[1],
+            $data['name'],
+            $data['goal'] ?? null,
+            $status,
+            $data['startDate'],
+            $data['endDate'],
+            actor_email_from_request($data),
+        ]);
+
+        $sprintStmt = $pdo->prepare('SELECT * FROM sprints WHERE id = ? AND org_id = ? LIMIT 1');
+        $sprintStmt->execute([$id, $organizationId]);
+        $createdSprint = $sprintStmt->fetch();
+
+        create_global_notification(
+            $pdo,
+            'Sprint created',
+            ($data['name'] ?? 'A sprint') . ' was added to ' . notification_project_label($project),
+            'sprint_created',
+            'sprint',
+            $id,
+            'projects',
+            $organizationId
+        );
+
+        json_response(['sprint' => sprint_record($createdSprint)], 201);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[0] ?? '') === 'sprints' && isset($segments[1]) && ($segments[2] ?? '') === 'complete') {
+        $data = read_json();
+        require_manager_or_admin_actor($data);
+
+        $sprint = ensure_sprint_exists($pdo, (string) $segments[1], $organizationId);
+        $project = ensure_project_exists($pdo, (string) $sprint['project_id'], $organizationId);
+
+        $unfinishedStmt = $pdo->prepare(
+            'SELECT id FROM bugs WHERE org_id = ? AND sprint_id = ? AND status <> "closed" ORDER BY created_at ASC'
+        );
+        $unfinishedStmt->execute([$organizationId, $segments[1]]);
+        $unfinishedBugIds = array_map(static fn(array $row): string => (string) $row['id'], $unfinishedStmt->fetchAll());
+
+        $completionAction = $data['completionAction'] ?? null;
+        $targetSprintId = $data['targetSprintId'] ?? null;
+
+        if ($unfinishedBugIds !== []) {
+            if (!in_array($completionAction, ['backlog', 'another_sprint'], true)) {
+                json_response(['message' => 'Choose whether unfinished bugs should move to backlog or another sprint.'], 422);
+                exit;
+            }
+
+            if ($completionAction === 'another_sprint') {
+                if (!is_string($targetSprintId) || $targetSprintId === '') {
+                    json_response(['message' => 'Choose the sprint that should receive unfinished bugs.'], 422);
+                    exit;
+                }
+                if ($targetSprintId === $segments[1]) {
+                    json_response(['message' => 'Unfinished bugs cannot be moved into the same sprint being completed.'], 422);
+                    exit;
+                }
+                $targetSprint = ensure_sprint_exists($pdo, $targetSprintId, $organizationId);
+                if ((string) $targetSprint['project_id'] !== (string) $sprint['project_id']) {
+                    json_response(['message' => 'Unfinished bugs can only be moved to another sprint in the same project.'], 422);
+                    exit;
+                }
+                if (in_array((string) $targetSprint['status'], ['completed', 'cancelled'], true)) {
+                    json_response(['message' => 'Choose a planned or active sprint as the carry-over target.'], 422);
+                    exit;
+                }
+            }
+
+            if ($completionAction === 'backlog') {
+                $placeholders = implode(', ', array_fill(0, count($unfinishedBugIds), '?'));
+                $update = $pdo->prepare('UPDATE bugs SET sprint_id = NULL, updated_at = ? WHERE org_id = ? AND id IN (' . $placeholders . ')');
+                $update->execute(array_merge([now(), $organizationId], $unfinishedBugIds));
+                foreach ($unfinishedBugIds as $bugId) {
+                    record_sprint_bug_history(
+                        $pdo,
+                        $organizationId,
+                        $bugId,
+                        (string) $segments[1],
+                        null,
+                        actor_email_from_request($data),
+                        'completion_to_backlog'
+                    );
+                }
+            }
+
+            if ($completionAction === 'another_sprint' && is_string($targetSprintId)) {
+                $placeholders = implode(', ', array_fill(0, count($unfinishedBugIds), '?'));
+                $update = $pdo->prepare('UPDATE bugs SET sprint_id = ?, updated_at = ? WHERE org_id = ? AND id IN (' . $placeholders . ')');
+                $update->execute(array_merge([$targetSprintId, now(), $organizationId], $unfinishedBugIds));
+                foreach ($unfinishedBugIds as $bugId) {
+                    record_sprint_bug_history(
+                        $pdo,
+                        $organizationId,
+                        $bugId,
+                        (string) $segments[1],
+                        $targetSprintId,
+                        actor_email_from_request($data),
+                        'completion_to_another_sprint'
+                    );
+                }
+            }
+        }
+
+        $completeStmt = $pdo->prepare('UPDATE sprints SET status = "completed", completed_at = ?, updated_at = ? WHERE id = ? AND org_id = ?');
+        $completeStmt->execute([now(), now(), $segments[1], $organizationId]);
+
+        $updatedSprintStmt = $pdo->prepare('SELECT * FROM sprints WHERE id = ? AND org_id = ? LIMIT 1');
+        $updatedSprintStmt->execute([$segments[1], $organizationId]);
+        $updatedSprint = $updatedSprintStmt->fetch();
+
+        create_global_notification(
+            $pdo,
+            'Sprint completed',
+            ($sprint['name'] ?? 'A sprint') . ' was completed in ' . notification_project_label($project),
+            'sprint_completed',
+            'sprint',
+            (string) $segments[1],
+            'projects',
+            $organizationId
+        );
+
+        json_response(['sprint' => sprint_record($updatedSprint), 'movedBugIds' => $unfinishedBugIds]);
+        exit;
+    }
+
+    if ($method === 'PATCH' && ($segments[0] ?? '') === 'sprints' && isset($segments[1])) {
+        $data = read_json();
+        require_manager_or_admin_actor($data);
+        $existingSprint = ensure_sprint_exists($pdo, (string) $segments[1], $organizationId);
+
+        if (array_key_exists('startDate', $data) || array_key_exists('endDate', $data)) {
+            validate_sprint_dates(
+                (string) ($data['startDate'] ?? $existingSprint['start_date']),
+                (string) ($data['endDate'] ?? $existingSprint['end_date'])
+            );
+        }
+
+        if (($data['status'] ?? null) === 'active') {
+            ensure_project_can_activate_sprint($pdo, (string) $existingSprint['project_id'], $organizationId, (string) $segments[1]);
+        }
+
+        if (($data['status'] ?? null) === 'completed') {
+            json_response(['message' => 'Use the sprint completion action so unfinished bugs can be handled properly.'], 422);
+            exit;
+        }
+
+        $sets = [];
+        $params = [];
+        $fieldMap = [
+            'name' => 'name',
+            'goal' => 'goal',
+            'status' => 'status',
+            'startDate' => 'start_date',
+            'endDate' => 'end_date',
+        ];
+        foreach ($fieldMap as $field => $column) {
+            if (array_key_exists($field, $data)) {
+                $sets[] = "{$column} = ?";
+                $params[] = $data[$field] ?: null;
+            }
+        }
+
+        if (!$sets) {
+            json_response(['message' => 'No supported sprint fields were provided.'], 422);
+            exit;
+        }
+
+        $sets[] = 'updated_at = ?';
+        $params[] = now();
+        $params[] = $segments[1];
+        $params[] = $organizationId;
+        $stmt = $pdo->prepare('UPDATE sprints SET ' . implode(', ', $sets) . ' WHERE id = ? AND org_id = ?');
+        $stmt->execute($params);
+
+        $sprintStmt = $pdo->prepare('SELECT * FROM sprints WHERE id = ? AND org_id = ? LIMIT 1');
+        $sprintStmt->execute([$segments[1], $organizationId]);
+        json_response(['sprint' => sprint_record($sprintStmt->fetch())]);
+        exit;
+    }
+
+    if ($method === 'POST' && ($segments[0] ?? '') === 'projects' && !isset($segments[1])) {
         $data = read_json();
         require_admin_actor($data);
         require_fields($data, ['name', 'description', 'key']);
@@ -1386,6 +1709,24 @@ try {
             json_response(['message' => 'Project not found for this organization.'], 404);
             exit;
         }
+        $sprintId = $data['sprintId'] ?? null;
+        if ($sprintId !== null && $sprintId !== '') {
+            if ($reportedByRole !== 'manager') {
+                json_response(['message' => 'Only managers can place a new bug directly into a sprint.'], 403);
+                exit;
+            }
+            $sprint = ensure_sprint_exists($pdo, (string) $sprintId, $organizationId);
+            if ((string) $sprint['project_id'] !== (string) $data['projectId']) {
+                json_response(['message' => 'The selected sprint does not belong to this project.'], 422);
+                exit;
+            }
+            if (in_array((string) $sprint['status'], ['completed', 'cancelled'], true)) {
+                json_response(['message' => 'Choose a planned or active sprint for new bug work.'], 422);
+                exit;
+            }
+        } else {
+            $sprintId = null;
+        }
         $settings = system_settings($pdo);
         $priority = $data['priority'] ?? $settings['default_bug_priority'] ?? 'medium';
         $severity = $data['severity'] ?? $settings['default_bug_severity'] ?? 'major';
@@ -1408,8 +1749,8 @@ try {
 
         $id = 'bug-' . time() . '-' . bin2hex(random_bytes(3));
         $stmt = $pdo->prepare(
-            'INSERT INTO bugs (id, org_id, title, description, status, priority, severity, project_id, assigned_to, reported_by, verification_tester_email, steps_to_reproduce, expected_result, actual_result, environment)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO bugs (id, org_id, title, description, status, priority, severity, project_id, sprint_id, assigned_to, reported_by, verification_tester_email, steps_to_reproduce, expected_result, actual_result, environment)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $id,
@@ -1420,6 +1761,7 @@ try {
             $priority,
             $severity,
             $data['projectId'],
+            $sprintId,
             $assignedTo,
             $reportedBy,
             $verificationTesterEmail,
@@ -1483,6 +1825,18 @@ try {
             );
         }
 
+        if ($sprintId) {
+            record_sprint_bug_history(
+                $pdo,
+                $organizationId,
+                $id,
+                null,
+                (string) $sprintId,
+                $reportedBy,
+                'created_in_sprint'
+            );
+        }
+
         record_bug_blockchain_event(
             $pdo,
             $id,
@@ -1495,6 +1849,7 @@ try {
                 'status' => (string) $status,
                 'priority' => (string) $priority,
                 'severity' => (string) $severity,
+                'sprintId' => $sprintId,
                 'assignedTo' => $assignedTo,
                 'verificationTesterEmail' => $verificationTesterEmail,
             ]
@@ -1539,7 +1894,28 @@ try {
             }
         }
 
-        $allowed = ['status', 'assignedTo', 'verificationTesterEmail'];
+        if (array_key_exists('sprintId', $data) && (($data['sprintId'] ?? null) !== ($existingBug['sprint_id'] ?? null))) {
+            $actorEmail = actor_email_from_request($data);
+            $actorRole = actor_role_from_request($data) ?: ($actorEmail ? role_for_user_email($pdo, $actorEmail, $organizationId) : null);
+            if (!in_array($actorRole, ['admin', 'manager'], true)) {
+                json_response(['message' => 'Only administrators and managers can move bugs between backlog and sprints.'], 403);
+                exit;
+            }
+
+            if (!empty($data['sprintId'])) {
+                $targetSprint = ensure_sprint_exists($pdo, (string) $data['sprintId'], $organizationId);
+                if ((string) $targetSprint['project_id'] !== (string) $existingBug['project_id']) {
+                    json_response(['message' => 'The selected sprint does not belong to this bug project.'], 422);
+                    exit;
+                }
+                if (in_array((string) $targetSprint['status'], ['completed', 'cancelled'], true)) {
+                    json_response(['message' => 'You can only move bugs into planned or active sprints.'], 422);
+                    exit;
+                }
+            }
+        }
+
+        $allowed = ['status', 'assignedTo', 'verificationTesterEmail', 'sprintId'];
         $sets = [];
         $params = [];
         foreach ($allowed as $field) {
@@ -1547,6 +1923,7 @@ try {
                 $column = match ($field) {
                     'assignedTo' => 'assigned_to',
                     'verificationTesterEmail' => 'verification_tester_email',
+                    'sprintId' => 'sprint_id',
                     default => $field,
                 };
                 $sets[] = "{$column} = ?";
@@ -1611,6 +1988,38 @@ try {
                 'bug',
                 $segments[1],
                 'bugs',
+                $organizationId
+            );
+        }
+
+        if (array_key_exists('sprintId', $data) && (($data['sprintId'] ?? null) !== ($existingBug['sprint_id'] ?? null))) {
+            $targetSprintName = null;
+            if (!empty($data['sprintId'])) {
+                $targetSprintStmt = $pdo->prepare('SELECT name FROM sprints WHERE id = ? AND org_id = ? LIMIT 1');
+                $targetSprintStmt->execute([$data['sprintId'], $organizationId]);
+                $targetSprintName = $targetSprintStmt->fetchColumn() ?: null;
+            }
+
+            record_sprint_bug_history(
+                $pdo,
+                $organizationId,
+                (string) $segments[1],
+                $existingBug['sprint_id'] ?? null,
+                !empty($data['sprintId']) ? (string) $data['sprintId'] : null,
+                actor_email_from_request($data),
+                !empty($data['sprintId']) ? 'manual_assignment' : 'moved_to_backlog'
+            );
+
+            create_global_notification(
+                $pdo,
+                'Sprint updated',
+                !empty($data['sprintId'])
+                    ? notification_bug_label($existingBug) . ' moved into sprint ' . ($targetSprintName ?: $data['sprintId'])
+                    : notification_bug_label($existingBug) . ' moved back to backlog',
+                'sprint_updated',
+                'bug',
+                $segments[1],
+                'projects',
                 $organizationId
             );
         }
@@ -1987,14 +2396,20 @@ try {
         $usersStmt->execute([$organizationId]);
         $projectsStmt = $pdo->prepare('SELECT id, name, description, project_key, status, team_size, created_at, updated_at FROM projects WHERE org_id = ? ORDER BY created_at DESC');
         $projectsStmt->execute([$organizationId]);
+        $sprintsStmt = $pdo->prepare('SELECT * FROM sprints WHERE org_id = ? ORDER BY created_at DESC');
+        $sprintsStmt->execute([$organizationId]);
         $bugsStmt = $pdo->prepare('SELECT * FROM bugs WHERE org_id = ? ORDER BY created_at DESC');
         $bugsStmt->execute([$organizationId]);
+        $sprintHistoryStmt = $pdo->prepare('SELECT * FROM sprint_bug_history WHERE org_id = ? ORDER BY moved_at DESC');
+        $sprintHistoryStmt->execute([$organizationId]);
         json_response([
             'generatedAt' => now(),
             'organizationId' => $organizationId,
             'users' => $usersStmt->fetchAll(),
             'projects' => $projectsStmt->fetchAll(),
+            'sprints' => $sprintsStmt->fetchAll(),
             'bugs' => $bugsStmt->fetchAll(),
+            'sprintHistory' => $sprintHistoryStmt->fetchAll(),
             'reports' => [
                 'stats' => bug_stats($pdo, $organizationId),
                 'settings' => system_settings($pdo),

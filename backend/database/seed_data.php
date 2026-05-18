@@ -38,7 +38,9 @@ function run_seed(PDO $pdo): void
     $pdo->exec('TRUNCATE TABLE integrations');
     $pdo->exec('TRUNCATE TABLE activities');
     $pdo->exec('TRUNCATE TABLE bug_blockchain_events');
+    $pdo->exec('TRUNCATE TABLE sprint_bug_history');
     $pdo->exec('TRUNCATE TABLE bugs');
+    $pdo->exec('TRUNCATE TABLE sprints');
     $pdo->exec('TRUNCATE TABLE projects');
     $pdo->exec('TRUNCATE TABLE users');
     $pdo->exec('TRUNCATE TABLE organizations');
