@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { api, type BlockchainBugEvent, type Bug, type BugAttachment, type Comment, type Project, type SystemSettings, type User } from '@/lib/api'
+import { api, type BlockchainBugEvent, type Bug, type BugAttachment, type Comment, type Project, type Sprint, type SystemSettings, type User } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
 import { formatDateWithSettings } from '@/lib/system-settings-context'
 import { Badge } from '@/components/ui/badge'
@@ -22,6 +22,7 @@ interface NewBugFormData {
   priority: 'low' | 'medium' | 'high' | 'critical'
   severity: 'minor' | 'major' | 'critical'
   projectId: string
+  sprintId?: string
   assignedTo?: string
   verificationTesterEmail?: string
   stepsToReproduce?: string
@@ -36,6 +37,7 @@ interface BugsListProps {
 }
 
 const UNASSIGNED_VALUE = '__unassigned__'
+const BACKLOG_VALUE = '__backlog__'
 
 export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: BugsListProps) {
   const { user } = useAuth()
@@ -64,11 +66,15 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
   const [defaults, setDefaults] = useState(bugDefaults)
   const [assignmentValue, setAssignmentValue] = useState('')
   const [verificationTesterValue, setVerificationTesterValue] = useState('')
+  const [sprintValue, setSprintValue] = useState('')
   const [statusValue, setStatusValue] = useState<Bug['status']>('open')
   const [isUpdatingAssignment, setIsUpdatingAssignment] = useState(false)
   const [isUpdatingVerificationTester, setIsUpdatingVerificationTester] = useState(false)
+  const [isUpdatingSprint, setIsUpdatingSprint] = useState(false)
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+  const [createProjectSprints, setCreateProjectSprints] = useState<Sprint[]>([])
+  const [selectedBugProjectSprints, setSelectedBugProjectSprints] = useState<Sprint[]>([])
   const canAssignBugs = user?.role === 'manager' || user?.role === 'admin'
   const canCreateBug = user?.role === 'manager' || user?.role === 'tester'
   const hasFlowView = user?.role === 'manager' || user?.role === 'admin'
@@ -86,6 +92,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
       priority: bugDefaults.default_bug_priority,
       severity: bugDefaults.default_bug_severity,
       projectId: '',
+      sprintId: BACKLOG_VALUE,
       assignedTo: '',
       verificationTesterEmail: '',
       stepsToReproduce: '',
@@ -128,17 +135,48 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
       setComments([])
       setAttachments([])
       setBlockchainEvents([])
+      setSelectedBugProjectSprints([])
       setAssignmentValue('')
       setVerificationTesterValue('')
+      setSprintValue('')
       return
     }
     setAssignmentValue(selectedBug.assignedTo || '')
     setVerificationTesterValue(selectedBug.verificationTesterEmail || '')
+    setSprintValue(selectedBug.sprintId || '')
     setStatusValue(selectedBug.status)
     api.getComments(selectedBug.id).then(setComments).catch(() => setComments([]))
     api.getBugAttachments(selectedBug.id).then(setAttachments).catch(() => setAttachments([]))
     api.getBugBlockchainEvents(selectedBug.id).then(setBlockchainEvents).catch(() => setBlockchainEvents([]))
+    api.getProjectSprints(selectedBug.projectId).then(setSelectedBugProjectSprints).catch(() => setSelectedBugProjectSprints([]))
   }, [selectedBug])
+
+  const selectedProjectIdForNewBug = form.watch('projectId')
+
+  useEffect(() => {
+    if (!canAssignBugs || !isNewBugDialogOpen || !selectedProjectIdForNewBug) {
+      setCreateProjectSprints([])
+      if (!selectedProjectIdForNewBug) {
+        form.setValue('sprintId', BACKLOG_VALUE)
+      }
+      return
+    }
+
+    api.getProjectSprints(selectedProjectIdForNewBug)
+      .then((projectSprints) => {
+        const availableSprints = projectSprints.filter((sprint) => sprint.status === 'planned' || sprint.status === 'active')
+        setCreateProjectSprints(availableSprints)
+        const currentSprintId = form.getValues('sprintId')
+        if (
+          currentSprintId &&
+          currentSprintId !== BACKLOG_VALUE &&
+          !availableSprints.some((sprint) => sprint.id === currentSprintId)
+        ) {
+          form.setValue('sprintId', BACKLOG_VALUE)
+        }
+      })
+      .catch(() => setCreateProjectSprints([]))
+  }, [canAssignBugs, form, isNewBugDialogOpen, selectedProjectIdForNewBug])
 
   useEffect(() => {
     if (hasFlowView) {
@@ -252,8 +290,9 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
   }
 
   const onSubmitNewBug = async (data: NewBugFormData) => {
-    const result = await api.createBug({
+  const result = await api.createBug({
       ...data,
+      sprintId: data.sprintId === BACKLOG_VALUE ? '' : data.sprintId,
       assignedTo: data.assignedTo === UNASSIGNED_VALUE ? '' : data.assignedTo,
       reportedBy: user?.email || 'unknown@blockbug.dev',
       verificationTesterEmail: user?.role === 'tester'
@@ -270,6 +309,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
       priority: defaults.default_bug_priority,
       severity: defaults.default_bug_severity,
       projectId: projects[0]?.id || '',
+      sprintId: BACKLOG_VALUE,
       assignedTo: '',
       verificationTesterEmail: '',
       stepsToReproduce: '',
@@ -361,6 +401,26 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
       setError(err instanceof Error ? err.message : 'Could not update verification tester')
     } finally {
       setIsUpdatingVerificationTester(false)
+    }
+  }
+
+  const updateSprintAssignment = async () => {
+    if (!selectedBug || !canAssignBugs) return
+    setIsUpdatingSprint(true)
+    try {
+      const updatedBug = await api.updateBug(selectedBug.id, {
+        sprintId: sprintValue || null,
+        actorRole: user?.role,
+        userEmail: user?.email,
+        userName: user?.name,
+      })
+      setSelectedBug(updatedBug)
+      setBugs((prev) => prev.map((bug) => bug.id === updatedBug.id ? updatedBug : bug))
+      window.dispatchEvent(new Event('blockbug:notifications-updated'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update sprint assignment')
+    } finally {
+      setIsUpdatingSprint(false)
     }
   }
 
@@ -556,6 +616,34 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                         </FormItem>
                       )}
                     />
+
+                    {canAssignBugs && (
+                      <FormField
+                        control={form.control}
+                        name="sprintId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Sprint</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value || BACKLOG_VALUE}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Leave in backlog" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value={BACKLOG_VALUE}>Backlog</SelectItem>
+                                {createProjectSprints.map((sprint) => (
+                                  <SelectItem key={sprint.id} value={sprint.id}>
+                                    {sprint.name} ({sprint.status})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
 
                     {canAssignBugs && (
                       <FormField
@@ -1032,10 +1120,16 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                     Keep the project and responsibility details separate from the reproduction notes above.
                   </p>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                   <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project</p>
                     <p className="mt-2 text-sm font-medium text-foreground">{projectNameById[selectedBug.projectId] || 'Unknown project'}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sprint</p>
+                    <p className="mt-2 text-sm font-medium text-foreground">
+                      {selectedBugProjectSprints.find((sprint) => sprint.id === selectedBug.sprintId)?.name || (selectedBug.sprintId ? 'Assigned sprint' : 'Backlog')}
+                    </p>
                   </div>
                   <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Assigned To</p>
@@ -1054,6 +1148,30 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
             </div>
             {canAssignBugs && (
               <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                  <div className="flex-1">
+                    <label className="block text-sm font-semibold text-foreground mb-2">Sprint Placement</label>
+                    <select
+                      value={sprintValue}
+                      onChange={(event) => setSprintValue(event.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">Backlog</option>
+                      {selectedBugProjectSprints.map((sprint) => (
+                        <option key={sprint.id} value={sprint.id}>
+                          {sprint.name} ({sprint.status})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={updateSprintAssignment}
+                    disabled={isUpdatingSprint || sprintValue === (selectedBug.sprintId || '')}
+                  >
+                    {isUpdatingSprint ? 'Saving...' : 'Save Sprint'}
+                  </Button>
+                </div>
                 <div className="flex flex-col gap-3 md:flex-row md:items-end">
                   <div className="flex-1">
                     <label className="block text-sm font-semibold text-foreground mb-2">Assign Bug</label>

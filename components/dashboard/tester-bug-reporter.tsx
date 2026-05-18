@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { api, type BlockchainBugEvent, type Bug, type Project, type SystemSettings } from '@/lib/api'
+import { api, type BlockchainBugEvent, type Bug, type Project, type Sprint, type SystemSettings } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Bug as BugIcon, CheckCircle2, AlertTriangle, XCircle, Clock, RotateCcw, ArrowLeft } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -42,6 +42,7 @@ export function TesterBugReporter() {
   const [updatingBugId, setUpdatingBugId] = useState<string | null>(null)
   const [selectedBug, setSelectedBug] = useState<Bug | null>(null)
   const [blockchainEvents, setBlockchainEvents] = useState<BlockchainBugEvent[]>([])
+  const [selectedBugProjectSprints, setSelectedBugProjectSprints] = useState<Sprint[]>([])
   const { user } = useAuth()
 
   const form = useForm<NewBugFormData>({
@@ -85,10 +86,12 @@ export function TesterBugReporter() {
   useEffect(() => {
     if (!selectedBug) {
       setBlockchainEvents([])
+      setSelectedBugProjectSprints([])
       return
     }
 
     api.getBugBlockchainEvents(selectedBug.id).then(setBlockchainEvents).catch(() => setBlockchainEvents([]))
+    api.getProjectSprints(selectedBug.projectId).then(setSelectedBugProjectSprints).catch(() => setSelectedBugProjectSprints([]))
   }, [selectedBug])
 
   const testerVisibleBugs = bugs.filter((bug) => bug.reportedBy === user?.email || bug.verificationTesterEmail === user?.email)
@@ -645,10 +648,16 @@ export function TesterBugReporter() {
                   Keep the project and assignment details separate from the reproduction notes above.
                 </p>
               </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project</p>
                   <p className="mt-2 text-sm font-medium text-foreground">{projectNameById[selectedBug.projectId] || 'Unknown project'}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sprint</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">
+                    {selectedBugProjectSprints.find((sprint) => sprint.id === selectedBug.sprintId)?.name || (selectedBug.sprintId ? 'Assigned sprint' : 'Backlog')}
+                  </p>
                 </div>
                 <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Assigned To</p>

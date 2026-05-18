@@ -38,6 +38,20 @@ export interface Project {
   updatedAt?: Date
 }
 
+export interface Sprint {
+  id: string
+  projectId: string
+  name: string
+  goal?: string | null
+  status: 'planned' | 'active' | 'completed' | 'cancelled'
+  startDate: Date
+  endDate: Date
+  createdBy?: string | null
+  completedAt?: Date | null
+  createdAt: Date
+  updatedAt?: Date
+}
+
 export interface Bug {
   id: string
   title: string
@@ -46,6 +60,7 @@ export interface Bug {
   priority: 'low' | 'medium' | 'high' | 'critical'
   severity: 'minor' | 'major' | 'critical'
   projectId: string
+  sprintId?: string | null
   assignedTo?: string | null
   reportedBy: string
   verificationTesterEmail?: string | null
@@ -205,6 +220,7 @@ export interface NewBugPayload {
   priority: Bug['priority']
   severity: Bug['severity']
   projectId: string
+  sprintId?: string
   reportedBy: string
   assignedTo?: string
   verificationTesterEmail?: string
@@ -270,6 +286,17 @@ function normalizeProject(project: any): Project {
     ...project,
     createdAt: parseDate(project.createdAt) || new Date(),
     updatedAt: parseDate(project.updatedAt) || undefined,
+  }
+}
+
+function normalizeSprint(sprint: any): Sprint {
+  return {
+    ...sprint,
+    startDate: parseDate(sprint.startDate) || new Date(sprint.startDate),
+    endDate: parseDate(sprint.endDate) || new Date(sprint.endDate),
+    completedAt: parseDate(sprint.completedAt),
+    createdAt: parseDate(sprint.createdAt) || new Date(),
+    updatedAt: parseDate(sprint.updatedAt) || undefined,
   }
 }
 
@@ -449,6 +476,68 @@ export const api = {
     })
   },
 
+  async getProjectSprints(projectId: string) {
+    const data = await request<{ sprints: any[] }>(`/projects/${projectId}/sprints`)
+    return data.sprints.map(normalizeSprint)
+  },
+
+  async createSprint(
+    projectId: string,
+    payload: {
+      name: string
+      goal?: string
+      startDate: string
+      endDate: string
+      status?: Sprint['status']
+      actorRole?: UserRole
+      userEmail?: string
+      userName?: string
+    },
+  ) {
+    const data = await request<{ sprint: any }>(`/projects/${projectId}/sprints`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+    return normalizeSprint(data.sprint)
+  },
+
+  async updateSprint(
+    sprintId: string,
+    payload: Partial<Pick<Sprint, 'name' | 'goal' | 'status'>> & {
+      startDate?: string
+      endDate?: string
+      actorRole?: UserRole
+      userEmail?: string
+      userName?: string
+    },
+  ) {
+    const data = await request<{ sprint: any }>(`/sprints/${sprintId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+    return normalizeSprint(data.sprint)
+  },
+
+  async completeSprint(
+    sprintId: string,
+    payload: {
+      completionAction?: 'backlog' | 'another_sprint'
+      targetSprintId?: string | null
+      actorRole?: UserRole
+      userEmail?: string
+      userName?: string
+    },
+  ) {
+    const data = await request<{ sprint: any; movedBugIds: string[] }>(`/sprints/${sprintId}/complete`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+    return {
+      sprint: normalizeSprint(data.sprint),
+      movedBugIds: data.movedBugIds ?? [],
+    }
+  },
+
   async getBugs(options?: { reportedBy?: string; actorRole?: UserRole; actorEmail?: string }) {
     const params = new URLSearchParams()
     if (options?.reportedBy) {
@@ -495,7 +584,14 @@ export const api = {
     return data.events.map(normalizeBlockchainBugEvent)
   },
 
-  async updateBug(id: string, payload: Partial<Pick<Bug, 'status' | 'assignedTo' | 'verificationTesterEmail'>> & { userEmail?: string; userName?: string }) {
+  async updateBug(
+    id: string,
+    payload: Partial<Pick<Bug, 'status' | 'assignedTo' | 'verificationTesterEmail' | 'sprintId'>> & {
+      userEmail?: string
+      userName?: string
+      actorRole?: UserRole
+    },
+  ) {
     const data = await request<{ bug: any }>(`/bugs/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
