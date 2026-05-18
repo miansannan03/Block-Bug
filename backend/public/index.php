@@ -49,6 +49,15 @@ function comment_record(array $comment): array
     return $comment;
 }
 
+function attachment_record(array $attachment): array
+{
+    $attachment = camelize_record($attachment);
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? '127.0.0.1:8000';
+    $attachment['url'] = $scheme . '://' . $host . ($attachment['filePath'] ?? '');
+    return $attachment;
+}
+
 function notification_record(array $notification): array
 {
     return camelize_record($notification);
@@ -331,6 +340,105 @@ function build_daily_digest_notification(PDO $pdo, string $email): ?array
     ];
 }
 
+function upload_bug_attachment(PDO $pdo, string $bugId, array $file, string $uploadedBy): ?array
+{
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return null;
+    }
+
+    if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+        json_response(['message' => 'Attachment upload failed.'], 422);
+        exit;
+    }
+
+    $size = (int) ($file['size'] ?? 0);
+    if ($size <= 0 || $size > 10 * 1024 * 1024) {
+        json_response(['message' => 'Attachments must be smaller than 10 MB.'], 422);
+        exit;
+    }
+
+    $tmpName = $file['tmp_name'] ?? '';
+    if (!is_string($tmpName) || $tmpName === '' || !is_uploaded_file($tmpName)) {
+        json_response(['message' => 'Invalid attachment upload.'], 422);
+        exit;
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = (string) $finfo->file($tmpName);
+    $allowedMimeTypes = [
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'application/pdf',
+        'text/plain',
+        'text/csv',
+        'application/zip',
+        'application/x-zip-compressed',
+    ];
+
+    if (!in_array($mimeType, $allowedMimeTypes, true)) {
+        json_response(['message' => 'Unsupported attachment type.'], 422);
+        exit;
+    }
+
+    $originalName = basename((string) ($file['name'] ?? 'attachment'));
+    $extension = pathinfo($originalName, PATHINFO_EXTENSION);
+    $storedName = $bugId . '-' . bin2hex(random_bytes(6)) . ($extension !== '' ? '.' . strtolower($extension) : '');
+    $uploadDirectory = __DIR__ . '/uploads/bugs';
+    if (!is_dir($uploadDirectory) && !mkdir($uploadDirectory, 0777, true) && !is_dir($uploadDirectory)) {
+        throw new RuntimeException('Could not create upload directory.');
+    }
+
+    $destination = $uploadDirectory . DIRECTORY_SEPARATOR . $storedName;
+    if (!move_uploaded_file($tmpName, $destination)) {
+        throw new RuntimeException('Could not save uploaded file.');
+    }
+
+    $id = 'attach-' . bin2hex(random_bytes(6));
+    $filePath = '/uploads/bugs/' . $storedName;
+    $stmt = $pdo->prepare(
+        'INSERT INTO bug_attachments (id, bug_id, original_name, stored_name, file_path, mime_type, file_size, uploaded_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([$id, $bugId, $originalName, $storedName, $filePath, $mimeType, $size, $uploadedBy]);
+
+    $attachment = $pdo->prepare('SELECT * FROM bug_attachments WHERE id = ? LIMIT 1');
+    $attachment->execute([$id]);
+    return $attachment->fetch() ?: null;
+}
+
+function delete_attachment_files(array $attachments): void
+{
+    foreach ($attachments as $attachment) {
+        $relativePath = $attachment['file_path'] ?? null;
+        if (!is_string($relativePath) || $relativePath === '') {
+            continue;
+        }
+
+        $fullPath = __DIR__ . $relativePath;
+        if (is_file($fullPath)) {
+            @unlink($fullPath);
+        }
+    }
+}
+
+function actor_role_from_request(array $data = []): ?string
+{
+    $queryRole = $_GET['actor_role'] ?? null;
+    $bodyRole = $data['actorRole'] ?? null;
+    $role = is_string($bodyRole) ? $bodyRole : (is_string($queryRole) ? $queryRole : null);
+    return $role !== null ? strtolower($role) : null;
+}
+
+function require_admin_actor(array $data = []): void
+{
+    if (actor_role_from_request($data) !== 'admin') {
+        json_response(['message' => 'This action is available to administrators only.'], 403);
+        exit;
+    }
+}
+
 try {
     $pdo = db();
     $method = $_SERVER['REQUEST_METHOD'];
@@ -416,6 +524,7 @@ try {
 
     if ($method === 'POST' && ($segments[0] ?? '') === 'users' && !isset($segments[1])) {
         $data = read_json();
+        require_admin_actor($data);
         require_fields($data, ['name', 'email', 'password', 'role']);
 
         $allowedRoles = ['admin', 'manager', 'developer', 'tester'];
@@ -466,6 +575,7 @@ try {
 
     if ($method === 'PATCH' && ($segments[0] ?? '') === 'users' && isset($segments[1])) {
         $data = read_json();
+        require_admin_actor($data);
         $sets = [];
         $params = [];
         foreach (['name', 'role', 'status'] as $field) {
@@ -500,6 +610,7 @@ try {
     }
 
     if ($method === 'DELETE' && ($segments[0] ?? '') === 'users' && isset($segments[1])) {
+        require_admin_actor();
         $user = $pdo->prepare('SELECT id, name, email, role, status FROM users WHERE id = ? LIMIT 1');
         $user->execute([$segments[1]]);
         $existingUser = $user->fetch();
@@ -561,6 +672,7 @@ try {
 
     if ($method === 'POST' && ($segments[0] ?? '') === 'projects') {
         $data = read_json();
+        require_admin_actor($data);
         require_fields($data, ['name', 'description', 'key']);
         $id = 'proj-' . bin2hex(random_bytes(4));
         $stmt = $pdo->prepare('INSERT INTO projects (id, name, description, project_key, status, team_size) VALUES (?, ?, ?, ?, ?, ?)');
@@ -581,6 +693,63 @@ try {
         exit;
     }
 
+    if ($method === 'DELETE' && ($segments[0] ?? '') === 'projects' && isset($segments[1])) {
+        require_admin_actor();
+        $project = $pdo->prepare('SELECT id, name, description, project_key, status, team_size, created_at, updated_at FROM projects WHERE id = ? LIMIT 1');
+        $project->execute([$segments[1]]);
+        $existingProject = $project->fetch();
+        if (!$existingProject) {
+            json_response(['message' => 'Project not found'], 404);
+            exit;
+        }
+
+        $bugIdsStmt = $pdo->prepare('SELECT id FROM bugs WHERE project_id = ?');
+        $bugIdsStmt->execute([$segments[1]]);
+        $bugIds = array_map(static fn(array $row): string => (string) $row['id'], $bugIdsStmt->fetchAll());
+
+        if ($bugIds !== []) {
+            $placeholders = implode(', ', array_fill(0, count($bugIds), '?'));
+            $attachmentsStmt = $pdo->prepare('SELECT file_path FROM bug_attachments WHERE bug_id IN (' . $placeholders . ')');
+            $attachmentsStmt->execute($bugIds);
+            $attachments = $attachmentsStmt->fetchAll();
+            delete_attachment_files($attachments);
+
+            $deleteAttachments = $pdo->prepare('DELETE FROM bug_attachments WHERE bug_id IN (' . $placeholders . ')');
+            $deleteAttachments->execute($bugIds);
+
+            $deleteComments = $pdo->prepare('DELETE FROM bug_comments WHERE bug_id IN (' . $placeholders . ')');
+            $deleteComments->execute($bugIds);
+
+            $deleteActivities = $pdo->prepare('DELETE FROM activities WHERE bug_id IN (' . $placeholders . ')');
+            $deleteActivities->execute($bugIds);
+
+            $deleteNotifications = $pdo->prepare('DELETE FROM notifications WHERE entity_type = "bug" AND entity_id IN (' . $placeholders . ')');
+            $deleteNotifications->execute($bugIds);
+
+            $deleteBugs = $pdo->prepare('DELETE FROM bugs WHERE id IN (' . $placeholders . ')');
+            $deleteBugs->execute($bugIds);
+        }
+
+        $deleteProjectNotifications = $pdo->prepare('DELETE FROM notifications WHERE entity_type = "project" AND entity_id = ?');
+        $deleteProjectNotifications->execute([$segments[1]]);
+
+        $deleteProject = $pdo->prepare('DELETE FROM projects WHERE id = ?');
+        $deleteProject->execute([$segments[1]]);
+
+        create_global_notification(
+            $pdo,
+            'Project deleted',
+            notification_project_label($existingProject) . ' was removed from the workspace',
+            'project_deleted',
+            'project',
+            $segments[1],
+            'projects'
+        );
+
+        json_response(['ok' => true]);
+        exit;
+    }
+
     if ($method === 'GET' && ($segments[0] ?? '') === 'bugs' && !isset($segments[1])) {
         $sql = 'SELECT * FROM bugs';
         $params = [];
@@ -595,8 +764,16 @@ try {
         exit;
     }
 
+    if ($method === 'GET' && ($segments[0] ?? '') === 'bugs' && isset($segments[1]) && ($segments[2] ?? '') === 'attachments') {
+        $stmt = $pdo->prepare('SELECT * FROM bug_attachments WHERE bug_id = ? ORDER BY created_at DESC');
+        $stmt->execute([$segments[1]]);
+        json_response(['attachments' => array_map('attachment_record', $stmt->fetchAll())]);
+        exit;
+    }
+
     if ($method === 'POST' && ($segments[0] ?? '') === 'bugs' && !isset($segments[1])) {
-        $data = read_json();
+        $contentType = strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? ''));
+        $data = str_contains($contentType, 'multipart/form-data') ? $_POST : read_json();
         require_fields($data, ['title', 'description', 'projectId', 'reportedBy']);
         $settings = system_settings($pdo);
         $priority = $data['priority'] ?? $settings['default_bug_priority'] ?? 'medium';
@@ -635,6 +812,11 @@ try {
         $activity = $pdo->prepare('INSERT INTO activities (id, bug_id, type, user_id, user_name, message) VALUES (?, ?, "created", ?, ?, ?)');
         $activity->execute(['act-' . bin2hex(random_bytes(6)), $id, $data['reportedBy'], $name, 'Created new bug report']);
 
+        $uploadedAttachment = null;
+        if (isset($_FILES['attachment'])) {
+            $uploadedAttachment = upload_bug_attachment($pdo, $id, $_FILES['attachment'], (string) $data['reportedBy']);
+        }
+
         $bugLabel = strtoupper(substr($id, 0, 8)) . ' - ' . $data['title'];
 
         create_global_notification(
@@ -661,7 +843,10 @@ try {
 
         $bug = $pdo->prepare('SELECT * FROM bugs WHERE id = ?');
         $bug->execute([$id]);
-        json_response(['bug' => bug_record($bug->fetch())], 201);
+        json_response([
+            'bug' => bug_record($bug->fetch()),
+            'attachment' => $uploadedAttachment ? attachment_record($uploadedAttachment) : null,
+        ], 201);
         exit;
     }
 
@@ -848,6 +1033,7 @@ try {
 
     if ($method === 'PATCH' && ($segments[0] ?? '') === 'system-settings') {
         $data = read_json();
+        require_admin_actor($data);
         $settings = $data['settings'] ?? [];
         if (isset($settings['session_timeout_minutes'])) {
             $settings['session_timeout_minutes'] = max(15, (int) $settings['session_timeout_minutes']);
@@ -990,6 +1176,7 @@ try {
     }
 
     if ($method === 'GET' && ($segments[0] ?? '') === 'maintenance' && ($segments[1] ?? '') === 'export') {
+        require_admin_actor();
         json_response([
             'generatedAt' => now(),
             'users' => $pdo->query('SELECT id, name, email, role, status, created_at, updated_at FROM users ORDER BY name')->fetchAll(),
@@ -1005,6 +1192,7 @@ try {
 
     if ($method === 'POST' && ($segments[0] ?? '') === 'maintenance' && ($segments[1] ?? '') === 'clear-data') {
         $data = read_json();
+        require_admin_actor($data);
         $target = $data['target'] ?? 'all';
         if ($target === 'notifications' || $target === 'all') {
             $pdo->exec('DELETE FROM notifications');
@@ -1028,6 +1216,10 @@ try {
     }
 
     if ($method === 'POST' && ($segments[0] ?? '') === 'maintenance' && ($segments[1] ?? '') === 'reset-demo') {
+        require_admin_actor(read_json());
+        $existingAttachments = $pdo->query('SELECT file_path FROM bug_attachments')->fetchAll();
+        delete_attachment_files($existingAttachments);
+        $pdo->exec('DELETE FROM bug_attachments');
         run_seed($pdo);
         create_global_notification(
             $pdo,

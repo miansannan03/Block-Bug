@@ -19,7 +19,7 @@ type PageType = 'overview' | 'bugs' | 'reports' | 'projects' | 'team' | 'integra
 
 function fallbackTargetPage(notification: Notification, role?: string): PageType {
   if (notification.targetPage === 'bugs' || notification.targetPage === 'projects' || notification.targetPage === 'team' || notification.targetPage === 'integrations' || notification.targetPage === 'settings' || notification.targetPage === 'reports' || notification.targetPage === 'overview') {
-    if (notification.targetPage === 'integrations' && role === 'admin') {
+    if (notification.targetPage === 'integrations' && role !== 'developer') {
       return 'settings'
     }
     return notification.targetPage
@@ -38,7 +38,7 @@ function fallbackTargetPage(notification: Notification, role?: string): PageType
     case 'user_login':
       return 'team'
     case 'integration_updated':
-      return role === 'admin' ? 'settings' : 'integrations'
+      return role === 'developer' ? 'integrations' : 'settings'
     default:
       return 'settings'
   }
@@ -59,7 +59,7 @@ function resolveDefaultPage(configuredPage: string, role?: string): PageType {
   }
 
   if (configuredPage === 'integrations') {
-    return role === 'admin' ? 'overview' : 'integrations'
+    return role === 'developer' ? 'integrations' : 'overview'
   }
 
   if (configuredPage === 'overview' || configuredPage === 'bugs' || configuredPage === 'reports' || configuredPage === 'projects' || configuredPage === 'team' || configuredPage === 'settings') {
@@ -82,7 +82,7 @@ export default function DashboardContent() {
   }, [settingsLoading, settings.dashboard_default_view, user?.role])
 
   useEffect(() => {
-    if (user?.role === 'admin' && currentPage === 'integrations') {
+    if (user?.role !== 'developer' && currentPage === 'integrations') {
       setCurrentPage('overview')
     }
   }, [currentPage, user?.role])
@@ -146,7 +146,7 @@ export default function DashboardContent() {
                   />
                 )}
                 {currentPage === 'team' && <TeamPage />}
-                {currentPage === 'integrations' && user?.role !== 'admin' && <IntegrationsPage />}
+                {currentPage === 'integrations' && user?.role === 'developer' && <IntegrationsPage />}
                 {currentPage === 'settings' && <SettingsPage />}
               </>
             )}

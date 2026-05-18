@@ -64,6 +64,19 @@ export interface Comment {
   createdAt: Date
 }
 
+export interface BugAttachment {
+  id: string
+  bugId: string
+  originalName: string
+  storedName: string
+  filePath: string
+  mimeType: string
+  fileSize: number
+  uploadedBy: string
+  url: string
+  createdAt: Date
+}
+
 export interface Notification {
   id: string
   userEmail?: string | null
@@ -167,12 +180,15 @@ export interface NewBugPayload {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers: isFormData
+      ? { ...(init?.headers ?? {}) }
+      : {
+          'Content-Type': 'application/json',
+          ...(init?.headers ?? {}),
+        },
   })
 
   const data = await response.json().catch(() => ({}))
@@ -216,6 +232,13 @@ function normalizeComment(comment: any): Comment {
   return {
     ...comment,
     createdAt: parseDate(comment.createdAt) || new Date(),
+  }
+}
+
+function normalizeBugAttachment(attachment: any): BugAttachment {
+  return {
+    ...attachment,
+    createdAt: parseDate(attachment.createdAt) || new Date(),
   }
 }
 
@@ -264,7 +287,7 @@ export const api = {
     return data.users
   },
 
-  async createUser(payload: { name: string; email: string; password: string; role: UserRole; status?: 'active' | 'inactive' }) {
+  async createUser(payload: { name: string; email: string; password: string; role: UserRole; status?: 'active' | 'inactive'; actorRole?: UserRole }) {
     return request<{ user: User }>('/users', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -276,15 +299,16 @@ export const api = {
     return data.roles
   },
 
-  async updateUser(id: string, payload: Partial<Pick<User, 'name' | 'role' | 'status'>>) {
+  async updateUser(id: string, payload: Partial<Pick<User, 'name' | 'role' | 'status'>> & { actorRole?: UserRole }) {
     return request<{ user: User }>(`/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     })
   },
 
-  async deleteUser(id: string) {
-    return request<{ ok: boolean }>(`/users/${id}`, {
+  async deleteUser(id: string, actorRole?: UserRole) {
+    const query = actorRole ? `?actor_role=${encodeURIComponent(actorRole)}` : ''
+    return request<{ ok: boolean }>(`/users/${id}${query}`, {
       method: 'DELETE',
     })
   },
@@ -301,12 +325,19 @@ export const api = {
     return data.projects.map(normalizeProject)
   },
 
-  async createProject(payload: { name: string; description: string; key: string; teamSize: number; status?: Project['status'] }) {
+  async createProject(payload: { name: string; description: string; key: string; teamSize: number; status?: Project['status']; actorRole?: UserRole }) {
     const data = await request<{ project: any }>('/projects', {
       method: 'POST',
       body: JSON.stringify(payload),
     })
     return normalizeProject(data.project)
+  },
+
+  async deleteProject(id: string, actorRole?: UserRole) {
+    const query = actorRole ? `?actor_role=${encodeURIComponent(actorRole)}` : ''
+    return request<{ ok: boolean }>(`/projects/${id}${query}`, {
+      method: 'DELETE',
+    })
   },
 
   async getBugs(reportedBy?: string) {
@@ -315,12 +346,29 @@ export const api = {
     return data.bugs.map(normalizeBug)
   },
 
-  async createBug(payload: NewBugPayload) {
-    const data = await request<{ bug: any }>('/bugs', {
-      method: 'POST',
-      body: JSON.stringify(payload),
+  async createBug(payload: NewBugPayload, attachment?: File | null) {
+    const body = new FormData()
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        body.append(key, String(value))
+      }
     })
-    return normalizeBug(data.bug)
+    if (attachment) {
+      body.append('attachment', attachment)
+    }
+    const data = await request<{ bug: any; attachment?: any | null }>('/bugs', {
+      method: 'POST',
+      body,
+    })
+    return {
+      bug: normalizeBug(data.bug),
+      attachment: data.attachment ? normalizeBugAttachment(data.attachment) : null,
+    }
+  },
+
+  async getBugAttachments(bugId: string) {
+    const data = await request<{ attachments: any[] }>(`/bugs/${bugId}/attachments`)
+    return data.attachments.map(normalizeBugAttachment)
   },
 
   async updateBug(id: string, payload: Partial<Pick<Bug, 'status' | 'assignedTo'>> & { userEmail?: string; userName?: string }) {
@@ -383,10 +431,10 @@ export const api = {
     return request<{ settings: SystemSettings }>('/system-settings')
   },
 
-  async updateSystemSettings(settings: Partial<SystemSettings>) {
+  async updateSystemSettings(settings: Partial<SystemSettings>, actorRole?: UserRole) {
     return request<{ settings: SystemSettings }>('/system-settings', {
       method: 'PATCH',
-      body: JSON.stringify({ settings }),
+      body: JSON.stringify({ settings, actorRole }),
     })
   },
 
@@ -412,29 +460,30 @@ export const api = {
     return data.integrations.map(normalizeIntegration)
   },
 
-  async updateIntegration(id: string, status: Integration['status']) {
+  async updateIntegration(id: string, status: Integration['status'], actorRole?: UserRole) {
     const data = await request<{ integration: any }>(`/integrations/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, actorRole }),
     })
     return normalizeIntegration(data.integration)
   },
 
-  async exportMaintenanceData() {
-    return request<any>('/maintenance/export')
+  async exportMaintenanceData(actorRole?: UserRole) {
+    const query = actorRole ? `?actor_role=${encodeURIComponent(actorRole)}` : ''
+    return request<any>(`/maintenance/export${query}`)
   },
 
-  async clearMaintenanceData(target: 'notifications' | 'activity' | 'all') {
+  async clearMaintenanceData(target: 'notifications' | 'activity' | 'all', actorRole?: UserRole) {
     return request<{ ok: boolean }>('/maintenance/clear-data', {
       method: 'POST',
-      body: JSON.stringify({ target }),
+      body: JSON.stringify({ target, actorRole }),
     })
   },
 
-  async resetDemoData() {
+  async resetDemoData(actorRole?: UserRole) {
     return request<{ ok: boolean }>('/maintenance/reset-demo', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ actorRole }),
     })
   },
 }

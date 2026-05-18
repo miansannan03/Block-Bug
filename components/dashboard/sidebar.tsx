@@ -42,7 +42,7 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
       { id: 'settings', label: 'Settings', icon: Settings },
     ]
 
-    if (userRole === 'admin') {
+    if (userRole === 'admin' || userRole === 'manager') {
       return baseItems
     }
 

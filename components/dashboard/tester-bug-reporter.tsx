@@ -38,6 +38,7 @@ export function TesterBugReporter() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [defaults, setDefaults] = useState(bugDefaults)
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
   const { user } = useAuth()
 
   const form = useForm<NewBugFormData>({
@@ -107,13 +108,14 @@ export function TesterBugReporter() {
   }
 
   const onSubmitNewBug = async (data: NewBugFormData) => {
-    const newBug = await api.createBug({
+    const result = await api.createBug({
       ...data,
       reportedBy: user?.email || 'unknown@blockbug.dev',
-    })
-    setBugs(prev => [newBug, ...prev])
+    }, attachmentFile)
+    setBugs(prev => [result.bug, ...prev])
     window.dispatchEvent(new Event('blockbug:notifications-updated'))
     setIsNewBugDialogOpen(false)
+    setAttachmentFile(null)
     form.reset({
       title: '',
       description: '',
@@ -340,6 +342,16 @@ export function TesterBugReporter() {
                     </FormItem>
                   )}
                 />
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-foreground">Attachment (Optional)</label>
+                  <Input
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.zip,.log"
+                    onChange={(event) => setAttachmentFile(event.target.files?.[0] || null)}
+                  />
+                  <p className="text-xs text-muted-foreground">Supported: images, PDF, text, CSV, ZIP. Max 10 MB.</p>
+                </div>
 
                 <div className="flex justify-end gap-3 pt-4">
                   <Button
