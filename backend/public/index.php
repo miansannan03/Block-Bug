@@ -1306,8 +1306,9 @@ try {
         $project = ensure_project_exists($pdo, (string) $segments[1], $organizationId);
         validate_sprint_dates((string) $data['startDate'], (string) $data['endDate']);
 
-        $status = in_array(($data['status'] ?? 'planned'), ['planned', 'active', 'completed', 'cancelled'], true)
-            ? (string) $data['status']
+        $requestedStatus = isset($data['status']) ? (string) $data['status'] : 'planned';
+        $status = in_array($requestedStatus, ['planned', 'active', 'completed', 'cancelled'], true)
+            ? $requestedStatus
             : 'planned';
         if ($status === 'active') {
             ensure_project_can_activate_sprint($pdo, (string) $segments[1], $organizationId);
