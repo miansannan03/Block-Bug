@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+function starts_with(string $haystack, string $needle): bool
+{
+    return strpos($haystack, $needle) === 0;
+}
+
+function contains_text(string $haystack, string $needle): bool
+{
+    return strpos($haystack, $needle) !== false;
+}
+
 function env_value(string $key, ?string $default = null): ?string
 {
     static $loaded = false;
@@ -13,7 +23,7 @@ function env_value(string $key, ?string $default = null): ?string
         if (is_file($envFile)) {
             foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
                 $line = trim($line);
-                if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
+                if ($line === '' || starts_with($line, '#') || !contains_text($line, '=')) {
                     continue;
                 }
 
@@ -72,7 +82,7 @@ function ensure_database_exists(): void
     db_server()->exec("CREATE DATABASE IF NOT EXISTS {$quoted} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 }
 
-function json_response(mixed $payload, int $status = 200): void
+function json_response($payload, int $status = 200): void
 {
     http_response_code($status);
     header('Content-Type: application/json');

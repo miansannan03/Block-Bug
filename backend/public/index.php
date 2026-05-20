@@ -1921,12 +1921,14 @@ try {
         $params = [];
         foreach ($allowed as $field) {
             if (array_key_exists($field, $data)) {
-                $column = match ($field) {
-                    'assignedTo' => 'assigned_to',
-                    'verificationTesterEmail' => 'verification_tester_email',
-                    'sprintId' => 'sprint_id',
-                    default => $field,
-                };
+                $column = $field;
+                if ($field === 'assignedTo') {
+                    $column = 'assigned_to';
+                } elseif ($field === 'verificationTesterEmail') {
+                    $column = 'verification_tester_email';
+                } elseif ($field === 'sprintId') {
+                    $column = 'sprint_id';
+                }
                 $sets[] = "{$column} = ?";
                 $params[] = $data[$field] ?: null;
             }

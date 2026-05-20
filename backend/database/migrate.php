@@ -2,9 +2,14 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/../config.php';
+require_once __DIR__ . '/../config.php';
 
-ensure_database_exists();
+try {
+    ensure_database_exists();
+} catch (Throwable $exception) {
+    // Shared hosts like InfinityFree usually provide a pre-created database
+    // and do not allow CREATE DATABASE for the site user.
+}
 $pdo = db();
 $pdo->exec(
     "CREATE TABLE IF NOT EXISTS migrations (

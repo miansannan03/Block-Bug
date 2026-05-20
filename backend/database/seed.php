@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/../config.php';
-require __DIR__ . '/seed_data.php';
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/seed_data.php';
 
 $pdo = db();
 
