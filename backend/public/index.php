@@ -434,26 +434,26 @@ function build_daily_digest_notification(PDO $pdo, string $email, ?string $organ
 
     if ($organizationId) {
         $activityStmt = $pdo->prepare(
-            'SELECT
-                SUM(CASE WHEN type = "created" THEN 1 ELSE 0 END) AS created_count,
-                SUM(CASE WHEN type = "assigned" THEN 1 ELSE 0 END) AS assigned_count,
-                SUM(CASE WHEN type = "commented" THEN 1 ELSE 0 END) AS commented_count,
-                SUM(CASE WHEN type = "status_changed" THEN 1 ELSE 0 END) AS status_count,
+            "SELECT
+                SUM(CASE WHEN type = 'created' THEN 1 ELSE 0 END) AS created_count,
+                SUM(CASE WHEN type = 'assigned' THEN 1 ELSE 0 END) AS assigned_count,
+                SUM(CASE WHEN type = 'commented' THEN 1 ELSE 0 END) AS commented_count,
+                SUM(CASE WHEN type = 'status_changed' THEN 1 ELSE 0 END) AS status_count,
                 MAX(created_at) AS last_event_at
              FROM activities
-             WHERE org_id = ? AND created_at >= ?'
+             WHERE org_id = ? AND created_at >= ?"
         );
         $activityStmt->execute([$organizationId, $since]);
     } else {
         $activityStmt = $pdo->prepare(
-            'SELECT
-                SUM(CASE WHEN type = "created" THEN 1 ELSE 0 END) AS created_count,
-                SUM(CASE WHEN type = "assigned" THEN 1 ELSE 0 END) AS assigned_count,
-                SUM(CASE WHEN type = "commented" THEN 1 ELSE 0 END) AS commented_count,
-                SUM(CASE WHEN type = "status_changed" THEN 1 ELSE 0 END) AS status_count,
+            "SELECT
+                SUM(CASE WHEN type = 'created' THEN 1 ELSE 0 END) AS created_count,
+                SUM(CASE WHEN type = 'assigned' THEN 1 ELSE 0 END) AS assigned_count,
+                SUM(CASE WHEN type = 'commented' THEN 1 ELSE 0 END) AS commented_count,
+                SUM(CASE WHEN type = 'status_changed' THEN 1 ELSE 0 END) AS status_count,
                 MAX(created_at) AS last_event_at
              FROM activities
-             WHERE created_at >= ?'
+             WHERE created_at >= ?"
         );
         $activityStmt->execute([$since]);
     }
@@ -1570,14 +1570,14 @@ try {
 
             $deleteActivities = $pdo->prepare('DELETE FROM activities WHERE org_id = ? AND bug_id IN (' . $placeholders . ')');
             $deleteActivities->execute(array_merge([$organizationId], $bugIds));
-            $deleteNotifications = $pdo->prepare('DELETE FROM notifications WHERE org_id = ? AND entity_type = "bug" AND entity_id IN (' . $placeholders . ')');
+            $deleteNotifications = $pdo->prepare("DELETE FROM notifications WHERE org_id = ? AND entity_type = 'bug' AND entity_id IN (" . $placeholders . ')');
             $deleteNotifications->execute(array_merge([$organizationId], $bugIds));
 
             $deleteBugs = $pdo->prepare('DELETE FROM bugs WHERE org_id = ? AND id IN (' . $placeholders . ')');
             $deleteBugs->execute(array_merge([$organizationId], $bugIds));
         }
 
-        $deleteProjectNotifications = $pdo->prepare('DELETE FROM notifications WHERE org_id = ? AND entity_type = "project" AND entity_id = ?');
+        $deleteProjectNotifications = $pdo->prepare("DELETE FROM notifications WHERE org_id = ? AND entity_type = 'project' AND entity_id = ?");
         $deleteProjectNotifications->execute([$organizationId, $segments[1]]);
 
         $deleteProject = $pdo->prepare('DELETE FROM projects WHERE id = ? AND org_id = ?');
@@ -1786,7 +1786,7 @@ try {
             $name = $user['name'];
         }
 
-        $activity = $pdo->prepare('INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, "created", ?, ?, ?)');
+        $activity = $pdo->prepare("INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, 'created', ?, ?, ?)");
         $activity->execute(['act-' . bin2hex(random_bytes(6)), $organizationId, $id, $reportedBy, $name, 'Created new bug report']);
 
         $uploadedAttachment = null;
@@ -1958,7 +1958,7 @@ try {
         if (array_key_exists('status', $data) && $data['status'] !== $existingBug['status']) {
             $userName = $data['userName'] ?? 'System';
             $userEmail = $data['userEmail'] ?? 'system@blockbug.dev';
-            $activity = $pdo->prepare('INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, "status_changed", ?, ?, ?)');
+            $activity = $pdo->prepare("INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, 'status_changed', ?, ?, ?)");
             $activity->execute(['act-' . bin2hex(random_bytes(6)), $organizationId, $segments[1], $userEmail, $userName, 'Changed status to ' . $data['status']]);
             create_global_notification(
                 $pdo,
@@ -1974,7 +1974,7 @@ try {
 
         if (array_key_exists('assignedTo', $data) && $data['assignedTo'] !== ($existingBug['assigned_to'] ?? null) && !empty($data['assignedTo'])) {
             $userName = $data['userName'] ?? 'System';
-            $activity = $pdo->prepare('INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, "assigned", ?, ?, ?)');
+            $activity = $pdo->prepare("INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, 'assigned', ?, ?, ?)");
             $activity->execute(['act-' . bin2hex(random_bytes(6)), $organizationId, $segments[1], $data['userEmail'] ?? 'system@blockbug.dev', $userName, 'Assigned bug to ' . $data['assignedTo']]);
             create_global_notification(
                 $pdo,
@@ -2105,7 +2105,7 @@ try {
         }
         $stmt = $pdo->prepare('INSERT INTO bug_comments (id, bug_id, parent_comment_id, user_email, user_name, comment) VALUES (?, ?, ?, ?, ?, ?)');
         $stmt->execute([$id, $segments[1], $parentCommentId, $data['userEmail'], $data['userName'], $data['comment']]);
-        $activity = $pdo->prepare('INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, "commented", ?, ?, ?)');
+        $activity = $pdo->prepare("INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, 'commented', ?, ?, ?)");
         $activity->execute(['act-' . bin2hex(random_bytes(6)), $organizationId, $segments[1], $data['userEmail'], $data['userName'], $parentCommentId ? 'Replied to a comment' : 'Added a comment']);
 
         if ($ownedBug) {
