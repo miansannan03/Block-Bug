@@ -14,7 +14,17 @@ function insert_row(PDO $pdo, string $table, array $data): void
     );
 
     $stmt = $pdo->prepare($sql);
-    $stmt->execute(array_values($data));
+    $values = array_map(
+        static function ($value) {
+            if (is_bool($value)) {
+                return $value ? 'true' : 'false';
+            }
+
+            return $value;
+        },
+        array_values($data)
+    );
+    $stmt->execute($values);
 }
 
 function default_organization_seed(PDO $pdo): array
@@ -30,21 +40,23 @@ function default_organization_seed(PDO $pdo): array
 
 function run_seed(PDO $pdo): void
 {
-    $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
-    $pdo->exec('TRUNCATE TABLE api_keys');
-    $pdo->exec('TRUNCATE TABLE user_preferences');
-    $pdo->exec('TRUNCATE TABLE notifications');
-    $pdo->exec('TRUNCATE TABLE bug_comments');
-    $pdo->exec('TRUNCATE TABLE integrations');
-    $pdo->exec('TRUNCATE TABLE activities');
-    $pdo->exec('TRUNCATE TABLE bug_blockchain_events');
-    $pdo->exec('TRUNCATE TABLE sprint_bug_history');
-    $pdo->exec('TRUNCATE TABLE bugs');
-    $pdo->exec('TRUNCATE TABLE sprints');
-    $pdo->exec('TRUNCATE TABLE projects');
-    $pdo->exec('TRUNCATE TABLE users');
-    $pdo->exec('TRUNCATE TABLE organizations');
-    $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+    $pdo->exec(
+        'TRUNCATE TABLE
+            api_keys,
+            user_preferences,
+            notifications,
+            bug_comments,
+            integrations,
+            activities,
+            bug_blockchain_events,
+            sprint_bug_history,
+            bugs,
+            sprints,
+            projects,
+            users,
+            organizations
+         RESTART IDENTITY CASCADE'
+    );
 
     $organization = default_organization_seed($pdo);
     insert_row($pdo, 'organizations', $organization);
@@ -109,9 +121,9 @@ function run_seed(PDO $pdo): void
     }
 
     $notifications = [
-        ['id' => 'notif-1', 'org_id' => $organization['id'], 'user_email' => 'sarah@blockbug.dev', 'title' => 'Critical bug assigned to you', 'body' => 'Crash on app launch in offline mode needs attention.', 'type' => 'assigned', 'is_read' => 0, 'created_at' => date('Y-m-d H:i:s', strtotime('-25 minutes'))],
-        ['id' => 'notif-2', 'org_id' => $organization['id'], 'user_email' => null, 'title' => 'New bug reported in Web Platform', 'body' => 'Missing validation on user input was reported.', 'type' => 'created', 'is_read' => 0, 'created_at' => date('Y-m-d H:i:s', strtotime('-12 hours'))],
-        ['id' => 'notif-3', 'org_id' => $organization['id'], 'user_email' => 'alex@blockbug.dev', 'title' => 'Fix verified', 'body' => 'Dashboard charts not rendering has been verified.', 'type' => 'verified', 'is_read' => 1, 'created_at' => date('Y-m-d H:i:s', strtotime('-1 day'))],
+        ['id' => 'notif-1', 'org_id' => $organization['id'], 'user_email' => 'sarah@blockbug.dev', 'title' => 'Critical bug assigned to you', 'body' => 'Crash on app launch in offline mode needs attention.', 'type' => 'assigned', 'is_read' => false, 'created_at' => date('Y-m-d H:i:s', strtotime('-25 minutes'))],
+        ['id' => 'notif-2', 'org_id' => $organization['id'], 'user_email' => null, 'title' => 'New bug reported in Web Platform', 'body' => 'Missing validation on user input was reported.', 'type' => 'created', 'is_read' => false, 'created_at' => date('Y-m-d H:i:s', strtotime('-12 hours'))],
+        ['id' => 'notif-3', 'org_id' => $organization['id'], 'user_email' => 'alex@blockbug.dev', 'title' => 'Fix verified', 'body' => 'Dashboard charts not rendering has been verified.', 'type' => 'verified', 'is_read' => true, 'created_at' => date('Y-m-d H:i:s', strtotime('-1 day'))],
     ];
 
     foreach ($notifications as $notification) {
@@ -125,7 +137,7 @@ function run_seed(PDO $pdo): void
                 'id' => 'pref-' . $user['id'] . '-' . $key,
                 'user_id' => $user['id'],
                 'preference_key' => $key,
-                'enabled' => $index < 2 ? 1 : 0,
+                'enabled' => $index < 2,
             ]);
         }
     }

@@ -15,7 +15,7 @@ $pdo->exec(
     "CREATE TABLE IF NOT EXISTS migrations (
         migration VARCHAR(255) PRIMARY KEY,
         ran_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    )"
 );
 
 $ran = $pdo->query('SELECT migration FROM migrations')->fetchAll(PDO::FETCH_COLUMN);

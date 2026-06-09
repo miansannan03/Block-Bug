@@ -16,3 +16,9 @@ node_modules
 .next/
 .DS_Store
 backend/*.log
+.playwright-mcp/
+.vscode/
+backend/infinityfree-deploy-*/
+backend/infinityfree-htdocs-*/
+backend/infinityfree-deploy-*.zip
+backend/infinityfree-htdocs-*.zip

@@ -36,6 +36,31 @@ function env_value(string $key, ?string $default = null): ?string
     return $_ENV[$key] ?? getenv($key) ?: $values[$key] ?? $default;
 }
 
+function database_config(): array
+{
+    $databaseUrl = env_value('DATABASE_URL');
+    if ($databaseUrl) {
+        $parts = parse_url($databaseUrl);
+        if (is_array($parts)) {
+            return [
+                'host' => isset($parts['host']) ? (string) $parts['host'] : env_value('DB_HOST', '127.0.0.1'),
+                'port' => isset($parts['port']) ? (string) $parts['port'] : env_value('DB_PORT', '5432'),
+                'database' => isset($parts['path']) ? ltrim((string) $parts['path'], '/') : env_value('DB_DATABASE', 'blockbug'),
+                'username' => isset($parts['user']) ? urldecode((string) $parts['user']) : env_value('DB_USERNAME', 'postgres'),
+                'password' => isset($parts['pass']) ? urldecode((string) $parts['pass']) : env_value('DB_PASSWORD', ''),
+            ];
+        }
+    }
+
+    return [
+        'host' => env_value('DB_HOST', '127.0.0.1'),
+        'port' => env_value('DB_PORT', '5432'),
+        'database' => env_value('DB_DATABASE', 'blockbug'),
+        'username' => env_value('DB_USERNAME', 'postgres'),
+        'password' => env_value('DB_PASSWORD', ''),
+    ];
+}
+
 function db(): PDO
 {
     static $pdo = null;
@@ -44,13 +69,14 @@ function db(): PDO
         return $pdo;
     }
 
-    $host = env_value('DB_HOST', '127.0.0.1');
-    $port = env_value('DB_PORT', '3306');
-    $database = env_value('DB_DATABASE', 'blockbug');
-    $username = env_value('DB_USERNAME', 'root');
-    $password = env_value('DB_PASSWORD', '');
+    $databaseConfig = database_config();
+    $host = $databaseConfig['host'];
+    $port = $databaseConfig['port'];
+    $database = $databaseConfig['database'];
+    $username = $databaseConfig['username'];
+    $password = $databaseConfig['password'];
 
-    $dsn = "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4";
+    $dsn = "pgsql:host={$host};port={$port};dbname={$database}";
     $pdo = new PDO($dsn, $username, $password, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -62,24 +88,12 @@ function db(): PDO
 
 function db_server(): PDO
 {
-    $host = env_value('DB_HOST', '127.0.0.1');
-    $port = env_value('DB_PORT', '3306');
-    $username = env_value('DB_USERNAME', 'root');
-    $password = env_value('DB_PASSWORD', '');
-
-    $dsn = "mysql:host={$host};port={$port};charset=utf8mb4";
-    return new PDO($dsn, $username, $password, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ]);
+    return db();
 }
 
 function ensure_database_exists(): void
 {
-    $database = env_value('DB_DATABASE', 'blockbug');
-    $quoted = '`' . str_replace('`', '``', (string) $database) . '`';
-    db_server()->exec("CREATE DATABASE IF NOT EXISTS {$quoted} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    // PostgreSQL databases are provisioned ahead of time.
 }
 
 function json_response($payload, int $status = 200): void

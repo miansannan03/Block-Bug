@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS bug_comments (
   comment TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT bug_comments_bug_id_fk FOREIGN KEY (bug_id) REFERENCES bugs(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 CREATE TABLE IF NOT EXISTS notifications (
   id VARCHAR(36) PRIMARY KEY,
@@ -14,20 +14,25 @@ CREATE TABLE IF NOT EXISTS notifications (
   title VARCHAR(255) NOT NULL,
   body TEXT NULL,
   type VARCHAR(40) NOT NULL DEFAULT 'info',
-  is_read TINYINT(1) NOT NULL DEFAULT 0,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 CREATE TABLE IF NOT EXISTS user_preferences (
   id VARCHAR(36) PRIMARY KEY,
   user_id VARCHAR(36) NOT NULL,
   preference_key VARCHAR(80) NOT NULL,
-  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY user_preferences_user_key_unique (user_id, preference_key),
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT user_preferences_user_key_unique UNIQUE (user_id, preference_key),
   CONSTRAINT user_preferences_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
+
+CREATE TRIGGER user_preferences_set_updated_at
+BEFORE UPDATE ON user_preferences
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE IF NOT EXISTS api_keys (
   id VARCHAR(36) PRIMARY KEY,
@@ -39,14 +44,20 @@ CREATE TABLE IF NOT EXISTS api_keys (
   last_used_at TIMESTAMP NULL,
   revoked_at TIMESTAMP NULL,
   CONSTRAINT api_keys_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 CREATE TABLE IF NOT EXISTS integrations (
   id VARCHAR(36) PRIMARY KEY,
-  name VARCHAR(120) NOT NULL UNIQUE,
+  name VARCHAR(120) NOT NULL,
   description TEXT NOT NULL,
   icon VARCHAR(12) NOT NULL,
-  status ENUM('connected', 'available') NOT NULL DEFAULT 'available',
+  status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('connected', 'available')),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT integrations_name_unique UNIQUE (name)
+);
+
+CREATE TRIGGER integrations_set_updated_at
+BEFORE UPDATE ON integrations
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
