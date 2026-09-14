@@ -1,3 +1,7 @@
+/*
+ * LEGACY BLOCKCHAIN CODE — intentionally commented out.
+ * Retained for reference; the Laravel API never executes this script.
+ *
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,3 +51,4 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
+*/

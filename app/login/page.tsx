@@ -1,8 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { api, type Organization } from '@/lib/api'
@@ -20,7 +19,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
+  const navigate = useNavigate()
   const { login } = useAuth()
   const { settings } = useSystemSettings()
 
@@ -62,7 +61,7 @@ export default function LoginPage() {
         throw new Error('Organization session is missing. Please sign in to the organization again.')
       }
       await login(organization.id, email, password)
-      router.push('/dashboard')
+      navigate('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
@@ -175,7 +174,7 @@ export default function LoginPage() {
           {settings.allow_signup ? (
             <div className="mt-6 text-center text-sm text-muted-foreground">
               Don&apos;t have an account?{' '}
-              <Link href="/signup" className="text-primary hover:underline font-medium">
+              <Link to="/signup" className="text-primary hover:underline font-medium">
                 Sign up
               </Link>
             </div>

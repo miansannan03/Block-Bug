@@ -1,0 +1,32 @@
+stateDiagram-v2
+    %% BlockBug Bug State-Transition Model
+
+    [*] --> Open: Bug report created
+
+    state "Open" as Open
+    state "In Progress" as InProgress
+    state "Resolved" as Resolved
+    state "Closed" as Closed
+
+    Open --> InProgress: Start work<br/>Assigned Developer
+    InProgress --> Resolved: Mark fix ready<br/>Assigned Developer
+    Resolved --> Closed: Verify fix<br/>Assigned or Reporting Tester
+    Resolved --> InProgress: Reject fix<br/>Assigned or Reporting Tester
+
+    Closed --> [*]: Bug lifecycle completed
+
+    note right of Open
+        Awaiting development work
+    end note
+
+    note right of InProgress
+        Fix is being implemented
+    end note
+
+    note right of Resolved
+        Fix is ready for tester verification
+    end note
+
+    note right of Closed
+        Fix has been verified
+    end note

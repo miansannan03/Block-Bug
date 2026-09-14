@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
+import { Link } from 'react-router-dom'
 import { useAuth } from '@/lib/auth-context'
 import { api, type BugStats, type DashboardData, type ReportData } from '@/lib/api'
 import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
@@ -128,7 +128,7 @@ export default function Home() {
 
           <div className="flex items-center gap-3">
             {isAuthenticated ? (
-              <Link href="/dashboard">
+              <Link to="/dashboard">
                 <Button className="gap-2 rounded-xl px-5">
                   Open Dashboard
                   <ArrowRight className="h-4 w-4" />
@@ -136,13 +136,13 @@ export default function Home() {
               </Link>
             ) : (
               <>
-                <Link href="/login">
+                <Link to="/login">
                   <Button variant="ghost" className="font-medium">
                     Organization Login
                   </Button>
                 </Link>
                 {settings.allow_signup && (
-                  <Link href="/signup">
+                  <Link to="/signup">
                     <Button className="gap-2 rounded-xl px-5">
                       Sign Up Organization
                       <ArrowRight className="h-4 w-4" />
@@ -175,20 +175,20 @@ export default function Home() {
 
               <div className="mt-8 flex flex-wrap gap-3">
                 {isAuthenticated ? (
-                  <Link href="/dashboard">
+                  <Link to="/dashboard">
                     <Button size="lg" className="rounded-xl px-6">
                       Open Dashboard
                     </Button>
                   </Link>
                 ) : (
                   <>
-                    <Link href="/login">
+                    <Link to="/login">
                       <Button size="lg" className="rounded-xl px-6">
                         Log In to Organization
                       </Button>
                     </Link>
                     {settings.allow_signup && (
-                      <Link href="/signup">
+                      <Link to="/signup">
                         <Button size="lg" variant="outline" className="rounded-xl px-6">
                           Create Organization
                         </Button>

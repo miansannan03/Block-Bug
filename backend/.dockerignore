@@ -1,0 +1,5 @@
+.env
+*.log
+infinityfree-deploy-20260520/
+infinityfree-htdocs-20260520/
+*.zip

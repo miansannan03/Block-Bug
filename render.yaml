@@ -1,0 +1,4 @@
+# Legacy Render/PostgreSQL deployment intentionally disabled.
+#
+# The active development configuration is Vite React + Laravel + Laragon MySQL.
+# See DEPLOYMENT.md for startup and migration commands.

@@ -1,0 +1,28 @@
+flowchart LR
+    %% Active BlockBug architecture
+
+    USERS["Administrators, Managers,<br/>Developers, and Testers"]
+    BROWSER["Web Browser"]
+    FRONTEND["Vite + React 19<br/>Single-page application"]
+    API["Laravel 12<br/>REST API"]
+    DB[("Laragon MySQL<br/>blockbug")]
+    LEGACY["Commented legacy blockchain code<br/>not executed"]
+
+    USERS --> BROWSER
+    BROWSER -->|"HTTP"| FRONTEND
+    FRONTEND -->|"JSON API"| API
+    API <-->|"Application data"| DB
+    LEGACY -.->|"Reference only"| API
+
+    classDef user fill:#E8F1FF,stroke:#2457A7,color:#102A43,stroke-width:1.5px;
+    classDef frontend fill:#E8FFF4,stroke:#147D64,color:#12372D,stroke-width:1.5px;
+    classDef backend fill:#FFF4DC,stroke:#B7791F,color:#513B10,stroke-width:1.5px;
+    classDef database fill:#F0EBFF,stroke:#6B46C1,color:#2D1B69,stroke-width:1.5px;
+    classDef audit fill:#FFE8E8,stroke:#C53030,color:#5B1717,stroke-width:1.5px;
+    classDef chain fill:#E6FAFF,stroke:#087E8B,color:#073B4C,stroke-width:1.5px;
+
+    class USERS,BROWSER user;
+    class FRONTEND frontend;
+    class API backend;
+    class DB database;
+    class LEGACY audit;

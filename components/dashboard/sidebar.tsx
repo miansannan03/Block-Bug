@@ -1,11 +1,11 @@
 'use client'
 
-import Link from 'next/link'
+import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { BarChart3, Bug, FolderOpen, Settings, Home, Moon, Sun, HelpCircle, Users } from 'lucide-react'
 import type { UserRole } from '@/lib/api'
 import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
-import { useTheme } from 'next-themes'
+import { useTheme } from '@/components/theme-provider'
 
 interface SidebarProps {
   currentPage: string
@@ -62,7 +62,7 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
       {/* Logo */}
       <div className="p-6 border-b border-sidebar-border">
         <Link
-          href="/"
+          to="/"
           className="flex items-center gap-3 rounded-xl border border-sidebar-border/80 bg-sidebar-accent/60 px-4 py-3 hover:bg-sidebar-accent/70 transition"
         >
           <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center shadow-lg">

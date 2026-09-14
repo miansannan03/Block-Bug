@@ -1,5 +1,19 @@
 <?php
 
+http_response_code(410);
+header('Content-Type: application/json');
+echo json_encode([
+    'message' => 'This legacy PHP API is disabled. Use the Laravel API in /laravel-api.',
+]);
+
+/*
+ * LEGACY CUSTOM PHP API - intentionally commented out.
+ *
+ * The complete implementation is retained below for reference, including the
+ * former blockchain integration. The active backend is now Laravel and does
+ * not execute any blockchain service, CLI, smart contract, or node code.
+ *
+
 declare(strict_types=1);
 
 require __DIR__ . '/../config.php';
@@ -303,12 +317,13 @@ function resolve_default_assignee(PDO $pdo, string $rule, string $reportedBy, ?s
     }
 
     if ($rule === 'project-lead') {
+        $roleOrder = "CASE role WHEN 'manager' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END";
         if ($organizationId) {
-            $stmt = $pdo->prepare("SELECT email FROM users WHERE org_id = ? AND status = 'active' AND role IN ('manager', 'admin') ORDER BY FIELD(role, 'manager', 'admin'), name LIMIT 1");
+            $stmt = $pdo->prepare("SELECT email FROM users WHERE org_id = ? AND status = 'active' AND role IN ('manager', 'admin') ORDER BY {$roleOrder}, name LIMIT 1");
             $stmt->execute([$organizationId]);
             $email = $stmt->fetchColumn();
         } else {
-            $stmt = $pdo->query("SELECT email FROM users WHERE status = 'active' AND role IN ('manager', 'admin') ORDER BY FIELD(role, 'manager', 'admin'), name LIMIT 1");
+            $stmt = $pdo->query("SELECT email FROM users WHERE status = 'active' AND role IN ('manager', 'admin') ORDER BY {$roleOrder}, name LIMIT 1");
             $email = $stmt->fetchColumn();
         }
         return $email !== false ? (string) $email : null;
@@ -433,26 +448,26 @@ function build_daily_digest_notification(PDO $pdo, string $email, ?string $organ
 
     if ($organizationId) {
         $activityStmt = $pdo->prepare(
-            'SELECT
-                SUM(CASE WHEN type = "created" THEN 1 ELSE 0 END) AS created_count,
-                SUM(CASE WHEN type = "assigned" THEN 1 ELSE 0 END) AS assigned_count,
-                SUM(CASE WHEN type = "commented" THEN 1 ELSE 0 END) AS commented_count,
-                SUM(CASE WHEN type = "status_changed" THEN 1 ELSE 0 END) AS status_count,
+            "SELECT
+                SUM(CASE WHEN type = 'created' THEN 1 ELSE 0 END) AS created_count,
+                SUM(CASE WHEN type = 'assigned' THEN 1 ELSE 0 END) AS assigned_count,
+                SUM(CASE WHEN type = 'commented' THEN 1 ELSE 0 END) AS commented_count,
+                SUM(CASE WHEN type = 'status_changed' THEN 1 ELSE 0 END) AS status_count,
                 MAX(created_at) AS last_event_at
              FROM activities
-             WHERE org_id = ? AND created_at >= ?'
+             WHERE org_id = ? AND created_at >= ?"
         );
         $activityStmt->execute([$organizationId, $since]);
     } else {
         $activityStmt = $pdo->prepare(
-            'SELECT
-                SUM(CASE WHEN type = "created" THEN 1 ELSE 0 END) AS created_count,
-                SUM(CASE WHEN type = "assigned" THEN 1 ELSE 0 END) AS assigned_count,
-                SUM(CASE WHEN type = "commented" THEN 1 ELSE 0 END) AS commented_count,
-                SUM(CASE WHEN type = "status_changed" THEN 1 ELSE 0 END) AS status_count,
+            "SELECT
+                SUM(CASE WHEN type = 'created' THEN 1 ELSE 0 END) AS created_count,
+                SUM(CASE WHEN type = 'assigned' THEN 1 ELSE 0 END) AS assigned_count,
+                SUM(CASE WHEN type = 'commented' THEN 1 ELSE 0 END) AS commented_count,
+                SUM(CASE WHEN type = 'status_changed' THEN 1 ELSE 0 END) AS status_count,
                 MAX(created_at) AS last_event_at
              FROM activities
-             WHERE created_at >= ?'
+             WHERE created_at >= ?"
         );
         $activityStmt->execute([$since]);
     }
@@ -655,7 +670,7 @@ function ensure_sprint_exists(PDO $pdo, string $sprintId, string $organizationId
 
 function ensure_project_can_activate_sprint(PDO $pdo, string $projectId, string $organizationId, ?string $excludeSprintId = null): void
 {
-    $sql = 'SELECT id FROM sprints WHERE project_id = ? AND org_id = ? AND status = "active"';
+    $sql = "SELECT id FROM sprints WHERE project_id = ? AND org_id = ? AND status = 'active'";
     $params = [$projectId, $organizationId];
     if ($excludeSprintId !== null) {
         $sql .= ' AND id <> ?';
@@ -696,15 +711,31 @@ function record_sprint_bug_history(
     ]);
 }
 
-function blockchain_service_url(): ?string
+function blockchain_service_urls(): array
 {
     $enabled = strtolower((string) env_value('BLOCKCHAIN_ENABLED', 'false'));
     if (in_array($enabled, ['0', 'false', 'off', 'no'], true)) {
-        return null;
+        return [];
     }
 
-    $url = trim((string) env_value('BLOCKCHAIN_AUDIT_SERVICE_URL', 'http://127.0.0.1:8787'));
-    return $url !== '' ? rtrim($url, '/') : null;
+    $urls = [];
+    $primaryUrl = trim((string) env_value('BLOCKCHAIN_AUDIT_SERVICE_URL', 'http://127.0.0.1:8787'));
+    if ($primaryUrl !== '') {
+        $urls[] = rtrim($primaryUrl, '/');
+    }
+
+    $fallbackUrl = trim((string) env_value('BLOCKCHAIN_AUDIT_SERVICE_FALLBACK_URL', ''));
+    if ($fallbackUrl !== '') {
+        $urls[] = rtrim($fallbackUrl, '/');
+    }
+
+    return $urls;
+}
+
+function blockchain_service_url(): ?string
+{
+    $urls = blockchain_service_urls();
+    return !empty($urls) ? $urls[0] : null;
 }
 
 function blockchain_http_json(string $method, string $url, ?array $payload = null): array
@@ -810,17 +841,17 @@ function record_bug_blockchain_event(
     $metadataJson = json_encode($metadata, JSON_THROW_ON_ERROR);
 
     $insert = $pdo->prepare(
-        'INSERT INTO bug_blockchain_events (id, bug_id, action, sync_status, created_by_email, metadata_json)
-         VALUES (?, ?, ?, "pending", ?, ?)'
+        "INSERT INTO bug_blockchain_events (id, bug_id, action, sync_status, created_by_email, metadata_json)
+         VALUES (?, ?, ?, 'pending', ?, ?)"
     );
     $insert->execute([$eventId, $bugId, $action, $actorEmail, $metadataJson]);
 
-    $serviceUrl = blockchain_service_url();
-    if ($serviceUrl === null) {
+    $serviceUrls = blockchain_service_urls();
+    if (empty($serviceUrls)) {
         $update = $pdo->prepare(
-            'UPDATE bug_blockchain_events
-             SET sync_status = "failed", error_message = ?, service_response = ?, updated_at = ?
-             WHERE id = ?'
+            "UPDATE bug_blockchain_events
+             SET sync_status = 'failed', error_message = ?, service_response = ?, updated_at = ?
+             WHERE id = ?"
         );
         $update->execute([
             'Blockchain audit service is disabled.',
@@ -830,9 +861,9 @@ function record_bug_blockchain_event(
         ]);
 
         $bugUpdate = $pdo->prepare(
-            'UPDATE bugs
-             SET blockchain_last_sync_status = "failed", blockchain_last_synced_at = ?
-             WHERE id = ?'
+            "UPDATE bugs
+             SET blockchain_last_sync_status = 'failed', blockchain_last_synced_at = ?
+             WHERE id = ?"
         );
         $bugUpdate->execute([now(), $bugId]);
         return;
@@ -846,9 +877,22 @@ function record_bug_blockchain_event(
             'actorRole' => $actorRole ?: 'system',
             'metadata' => $metadata,
         ];
-        $response = blockchain_http_json('POST', $serviceUrl . '/record-bug-event', $payload);
 
-        if ($response['statusCode'] === 0) {
+        $response = null;
+        $lastError = null;
+
+        // Try each service URL in sequence
+        foreach ($serviceUrls as $serviceUrl) {
+            $response = blockchain_http_json('POST', $serviceUrl . '/record-bug-event', $payload);
+            if ($response['statusCode'] !== 0) {
+                // Got a response from this URL (either success or error), stop trying others
+                break;
+            }
+            $lastError = "Failed to connect to {$serviceUrl}";
+        }
+
+        // If all service URLs failed to connect (statusCode === 0), try CLI
+        if ($response === null || $response['statusCode'] === 0) {
             $body = blockchain_cli_json($payload);
             $response = [
                 'statusCode' => 201,
@@ -860,15 +904,15 @@ function record_bug_blockchain_event(
         $body = $response['body'];
         if (($response['statusCode'] >= 200 && $response['statusCode'] < 300) && is_array($body) && !empty($body['ok'])) {
             $update = $pdo->prepare(
-                'UPDATE bug_blockchain_events
-                 SET sync_status = "synced",
+                "UPDATE bug_blockchain_events
+                 SET sync_status = 'synced',
                      transaction_hash = ?,
                      blockchain_event_id = ?,
                      bug_chain_id = ?,
                      contract_address = ?,
                      service_response = ?,
                      updated_at = ?
-                 WHERE id = ?'
+                 WHERE id = ?"
             );
             $update->execute([
                 $body['transactionHash'] ?? null,
@@ -881,13 +925,13 @@ function record_bug_blockchain_event(
             ]);
 
             $bugUpdate = $pdo->prepare(
-                'UPDATE bugs
+                "UPDATE bugs
                  SET blockchain_last_tx_hash = ?,
-                     blockchain_last_sync_status = "synced",
+                     blockchain_last_sync_status = 'synced',
                      blockchain_last_event_id = ?,
                      blockchain_bug_chain_id = ?,
                      blockchain_last_synced_at = ?
-                 WHERE id = ?'
+                 WHERE id = ?"
             );
             $bugUpdate->execute([
                 $body['transactionHash'] ?? null,
@@ -901,9 +945,9 @@ function record_bug_blockchain_event(
 
         $errorMessage = is_array($body) ? ($body['message'] ?? 'Unexpected blockchain audit response.') : 'Unexpected blockchain audit response.';
         $update = $pdo->prepare(
-            'UPDATE bug_blockchain_events
-             SET sync_status = "failed", error_message = ?, service_response = ?, updated_at = ?
-             WHERE id = ?'
+            "UPDATE bug_blockchain_events
+             SET sync_status = 'failed', error_message = ?, service_response = ?, updated_at = ?
+             WHERE id = ?"
         );
         $update->execute([
             (string) $errorMessage,
@@ -917,9 +961,9 @@ function record_bug_blockchain_event(
         ]);
     } catch (Throwable $exception) {
         $update = $pdo->prepare(
-            'UPDATE bug_blockchain_events
-             SET sync_status = "failed", error_message = ?, service_response = ?, updated_at = ?
-             WHERE id = ?'
+            "UPDATE bug_blockchain_events
+             SET sync_status = 'failed', error_message = ?, service_response = ?, updated_at = ?
+             WHERE id = ?"
         );
         $update->execute([
             $exception->getMessage(),
@@ -930,9 +974,9 @@ function record_bug_blockchain_event(
     }
 
     $bugUpdate = $pdo->prepare(
-        'UPDATE bugs
-         SET blockchain_last_sync_status = "failed", blockchain_last_synced_at = ?
-         WHERE id = ?'
+        "UPDATE bugs
+         SET blockchain_last_sync_status = 'failed', blockchain_last_synced_at = ?
+         WHERE id = ?"
     );
     $bugUpdate->execute([now(), $bugId]);
 }
@@ -961,10 +1005,10 @@ function replay_bug_blockchain_event(PDO $pdo, string $bugId, string $action): b
 
     if ($action === 'bug_status_changed' || $action === 'bug_verified' || $action === 'bug_verification_rejected') {
         $latestEventStmt = $pdo->prepare(
-            'SELECT metadata_json FROM bug_blockchain_events
-             WHERE bug_id = ? AND action = ? AND sync_status = "failed"
+            "SELECT metadata_json FROM bug_blockchain_events
+             WHERE bug_id = ? AND action = ? AND sync_status = 'failed'
              ORDER BY created_at DESC, id DESC
-             LIMIT 1'
+             LIMIT 1"
         );
         $latestEventStmt->execute([$bugId, $action]);
         $latestMetadataJson = $latestEventStmt->fetchColumn();
@@ -1008,7 +1052,7 @@ try {
     if ($method === 'POST' && ($segments[0] ?? '') === 'login') {
         $data = read_json();
         require_fields($data, ['organizationEmail', 'organizationPassword', 'email', 'password']);
-        $organizationStmt = $pdo->prepare('SELECT * FROM organizations WHERE login_email = ? AND status = "active" LIMIT 1');
+        $organizationStmt = $pdo->prepare("SELECT * FROM organizations WHERE login_email = ? AND status = 'active' LIMIT 1");
         $organizationStmt->execute([$data['organizationEmail']]);
         $organization = $organizationStmt->fetch();
         if (!$organization || !password_verify((string) $data['organizationPassword'], $organization['password_hash'])) {
@@ -1016,7 +1060,7 @@ try {
             exit;
         }
 
-        $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ? AND org_id = ? AND status = "active" LIMIT 1');
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? AND org_id = ? AND status = 'active' LIMIT 1");
         $stmt->execute([$data['email'], $organization['id']]);
         $user = $stmt->fetch();
 
@@ -1032,7 +1076,7 @@ try {
     if ($method === 'POST' && ($segments[0] ?? '') === 'organization-login') {
         $data = read_json();
         require_fields($data, ['organizationEmail', 'organizationPassword']);
-        $organizationStmt = $pdo->prepare('SELECT * FROM organizations WHERE login_email = ? AND status = "active" LIMIT 1');
+        $organizationStmt = $pdo->prepare("SELECT * FROM organizations WHERE login_email = ? AND status = 'active' LIMIT 1");
         $organizationStmt->execute([$data['organizationEmail']]);
         $organization = $organizationStmt->fetch();
         if (!$organization || !password_verify((string) $data['organizationPassword'], $organization['password_hash'])) {
@@ -1047,7 +1091,7 @@ try {
     if ($method === 'POST' && ($segments[0] ?? '') === 'member-login') {
         $data = read_json();
         require_fields($data, ['organizationId', 'email', 'password']);
-        $organizationStmt = $pdo->prepare('SELECT * FROM organizations WHERE id = ? AND status = "active" LIMIT 1');
+        $organizationStmt = $pdo->prepare("SELECT * FROM organizations WHERE id = ? AND status = 'active' LIMIT 1");
         $organizationStmt->execute([$data['organizationId']]);
         $organization = $organizationStmt->fetch();
         if (!$organization) {
@@ -1055,7 +1099,7 @@ try {
             exit;
         }
 
-        $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ? AND org_id = ? AND status = "active" LIMIT 1');
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? AND org_id = ? AND status = 'active' LIMIT 1");
         $stmt->execute([$data['email'], $organization['id']]);
         $user = $stmt->fetch();
 
@@ -1086,7 +1130,7 @@ try {
 
         $organizationId = 'org-' . bin2hex(random_bytes(6));
         $organizationInsert = $pdo->prepare(
-            'INSERT INTO organizations (id, name, login_email, password_hash, status) VALUES (?, ?, ?, ?, "active")'
+            "INSERT INTO organizations (id, name, login_email, password_hash, status) VALUES (?, ?, ?, ?, 'active')"
         );
         $organizationInsert->execute([
             $organizationId,
@@ -1096,7 +1140,7 @@ try {
         ]);
 
         $id = bin2hex(random_bytes(8));
-        $stmt = $pdo->prepare('INSERT INTO users (id, org_id, name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?, "admin", "active")');
+        $stmt = $pdo->prepare("INSERT INTO users (id, org_id, name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?, 'admin', 'active')");
         $stmt->execute([$id, $organizationId, $data['adminName'], $data['adminEmail'], password_hash((string) $data['adminPassword'], PASSWORD_DEFAULT)]);
 
         create_global_notification(
@@ -1289,9 +1333,15 @@ try {
     if ($method === 'GET' && ($segments[0] ?? '') === 'projects' && isset($segments[1]) && ($segments[2] ?? '') === 'sprints') {
         ensure_project_exists($pdo, (string) $segments[1], $organizationId);
         $stmt = $pdo->prepare(
-            'SELECT * FROM sprints
+            "SELECT * FROM sprints
              WHERE project_id = ? AND org_id = ?
-             ORDER BY FIELD(status, "active", "planned", "completed", "cancelled"), start_date DESC, created_at DESC'
+             ORDER BY CASE status
+                 WHEN 'active' THEN 0
+                 WHEN 'planned' THEN 1
+                 WHEN 'completed' THEN 2
+                 WHEN 'cancelled' THEN 3
+                 ELSE 4
+             END, start_date DESC, created_at DESC"
         );
         $stmt->execute([$segments[1], $organizationId]);
         json_response(['sprints' => array_map('sprint_record', $stmt->fetchAll())]);
@@ -1358,7 +1408,7 @@ try {
         $project = ensure_project_exists($pdo, (string) $sprint['project_id'], $organizationId);
 
         $unfinishedStmt = $pdo->prepare(
-            'SELECT id FROM bugs WHERE org_id = ? AND sprint_id = ? AND status <> "closed" ORDER BY created_at ASC'
+            "SELECT id FROM bugs WHERE org_id = ? AND sprint_id = ? AND status <> 'closed' ORDER BY created_at ASC"
         );
         $unfinishedStmt->execute([$organizationId, $segments[1]]);
         $unfinishedBugIds = array_map(static fn(array $row): string => (string) $row['id'], $unfinishedStmt->fetchAll());
@@ -1427,7 +1477,7 @@ try {
             }
         }
 
-        $completeStmt = $pdo->prepare('UPDATE sprints SET status = "completed", completed_at = ?, updated_at = ? WHERE id = ? AND org_id = ?');
+        $completeStmt = $pdo->prepare("UPDATE sprints SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ? AND org_id = ?");
         $completeStmt->execute([now(), now(), $segments[1], $organizationId]);
 
         $updatedSprintStmt = $pdo->prepare('SELECT * FROM sprints WHERE id = ? AND org_id = ? LIMIT 1');
@@ -1563,14 +1613,14 @@ try {
 
             $deleteActivities = $pdo->prepare('DELETE FROM activities WHERE org_id = ? AND bug_id IN (' . $placeholders . ')');
             $deleteActivities->execute(array_merge([$organizationId], $bugIds));
-            $deleteNotifications = $pdo->prepare('DELETE FROM notifications WHERE org_id = ? AND entity_type = "bug" AND entity_id IN (' . $placeholders . ')');
+            $deleteNotifications = $pdo->prepare("DELETE FROM notifications WHERE org_id = ? AND entity_type = 'bug' AND entity_id IN (" . $placeholders . ')');
             $deleteNotifications->execute(array_merge([$organizationId], $bugIds));
 
             $deleteBugs = $pdo->prepare('DELETE FROM bugs WHERE org_id = ? AND id IN (' . $placeholders . ')');
             $deleteBugs->execute(array_merge([$organizationId], $bugIds));
         }
 
-        $deleteProjectNotifications = $pdo->prepare('DELETE FROM notifications WHERE org_id = ? AND entity_type = "project" AND entity_id = ?');
+        $deleteProjectNotifications = $pdo->prepare("DELETE FROM notifications WHERE org_id = ? AND entity_type = 'project' AND entity_id = ?");
         $deleteProjectNotifications->execute([$organizationId, $segments[1]]);
 
         $deleteProject = $pdo->prepare('DELETE FROM projects WHERE id = ? AND org_id = ?');
@@ -1663,11 +1713,11 @@ try {
         }
 
         $failedActionsStmt = $pdo->prepare(
-            'SELECT action
+            "SELECT action
              FROM bug_blockchain_events
-             WHERE bug_id = ? AND sync_status = "failed"
+             WHERE bug_id = ? AND sync_status = 'failed'
              GROUP BY action
-             ORDER BY MAX(created_at) DESC'
+             ORDER BY MAX(created_at) DESC"
         );
         $failedActionsStmt->execute([$segments[1]]);
         $actions = array_map(
@@ -1779,7 +1829,7 @@ try {
             $name = $user['name'];
         }
 
-        $activity = $pdo->prepare('INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, "created", ?, ?, ?)');
+        $activity = $pdo->prepare("INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, 'created', ?, ?, ?)");
         $activity->execute(['act-' . bin2hex(random_bytes(6)), $organizationId, $id, $reportedBy, $name, 'Created new bug report']);
 
         $uploadedAttachment = null;
@@ -1921,12 +1971,14 @@ try {
         $params = [];
         foreach ($allowed as $field) {
             if (array_key_exists($field, $data)) {
-                $column = match ($field) {
-                    'assignedTo' => 'assigned_to',
-                    'verificationTesterEmail' => 'verification_tester_email',
-                    'sprintId' => 'sprint_id',
-                    default => $field,
-                };
+                $column = $field;
+                if ($field === 'assignedTo') {
+                    $column = 'assigned_to';
+                } elseif ($field === 'verificationTesterEmail') {
+                    $column = 'verification_tester_email';
+                } elseif ($field === 'sprintId') {
+                    $column = 'sprint_id';
+                }
                 $sets[] = "{$column} = ?";
                 $params[] = $data[$field] ?: null;
             }
@@ -1949,7 +2001,7 @@ try {
         if (array_key_exists('status', $data) && $data['status'] !== $existingBug['status']) {
             $userName = $data['userName'] ?? 'System';
             $userEmail = $data['userEmail'] ?? 'system@blockbug.dev';
-            $activity = $pdo->prepare('INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, "status_changed", ?, ?, ?)');
+            $activity = $pdo->prepare("INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, 'status_changed', ?, ?, ?)");
             $activity->execute(['act-' . bin2hex(random_bytes(6)), $organizationId, $segments[1], $userEmail, $userName, 'Changed status to ' . $data['status']]);
             create_global_notification(
                 $pdo,
@@ -1965,7 +2017,7 @@ try {
 
         if (array_key_exists('assignedTo', $data) && $data['assignedTo'] !== ($existingBug['assigned_to'] ?? null) && !empty($data['assignedTo'])) {
             $userName = $data['userName'] ?? 'System';
-            $activity = $pdo->prepare('INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, "assigned", ?, ?, ?)');
+            $activity = $pdo->prepare("INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, 'assigned', ?, ?, ?)");
             $activity->execute(['act-' . bin2hex(random_bytes(6)), $organizationId, $segments[1], $data['userEmail'] ?? 'system@blockbug.dev', $userName, 'Assigned bug to ' . $data['assignedTo']]);
             create_global_notification(
                 $pdo,
@@ -2096,7 +2148,7 @@ try {
         }
         $stmt = $pdo->prepare('INSERT INTO bug_comments (id, bug_id, parent_comment_id, user_email, user_name, comment) VALUES (?, ?, ?, ?, ?, ?)');
         $stmt->execute([$id, $segments[1], $parentCommentId, $data['userEmail'], $data['userName'], $data['comment']]);
-        $activity = $pdo->prepare('INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, "commented", ?, ?, ?)');
+        $activity = $pdo->prepare("INSERT INTO activities (id, org_id, bug_id, type, user_id, user_name, message) VALUES (?, ?, ?, 'commented', ?, ?, ?)");
         $activity->execute(['act-' . bin2hex(random_bytes(6)), $organizationId, $segments[1], $data['userEmail'], $data['userName'], $parentCommentId ? 'Replied to a comment' : 'Added a comment']);
 
         if ($ownedBug) {
@@ -2200,11 +2252,11 @@ try {
             ...($data['preferences'] ?? []),
         ];
         $stmt = $pdo->prepare(
-            'INSERT INTO user_preferences (id, user_id, preference_key, enabled) VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), updated_at = CURRENT_TIMESTAMP'
+            "INSERT INTO user_preferences (id, user_id, preference_key, enabled) VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), updated_at = CURRENT_TIMESTAMP"
         );
         foreach ($preferences as $key => $enabled) {
-            $stmt->execute(['pref-' . $data['userId'] . '-' . $key, $data['userId'], $key, $enabled ? 1 : 0]);
+            $stmt->execute(['pref-' . $data['userId'] . '-' . $key, $data['userId'], $key, $enabled]);
         }
         json_response(['preferences' => $preferences]);
         exit;
@@ -2226,8 +2278,8 @@ try {
             $settings['allow_signup'] = (bool) $settings['allow_signup'];
         }
         $stmt = $pdo->prepare(
-            'INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
-             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP'
+            "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP"
         );
         foreach ($settings as $key => $value) {
             $stmt->execute([$key, json_encode($value, JSON_THROW_ON_ERROR)]);
@@ -2344,7 +2396,7 @@ try {
             $date = date('Y-m-d', strtotime("-{$i} days"));
             $days[$date] = 0;
         }
-        $stmt = $pdo->prepare("SELECT DATE(created_at) AS day, COUNT(*) AS total FROM bugs WHERE org_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) GROUP BY DATE(created_at)");
+        $stmt = $pdo->prepare("SELECT DATE(created_at) AS day, COUNT(*) AS total FROM bugs WHERE org_id = ? AND created_at >= CURRENT_DATE - INTERVAL 6 DAY GROUP BY DATE(created_at)");
         $stmt->execute([$organizationId]);
         foreach ($stmt->fetchAll() as $row) {
             if (isset($days[$row['day']])) {
@@ -2352,22 +2404,22 @@ try {
             }
         }
 
-        $currentWeekStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
+        $currentWeekStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND created_at >= NOW() - INTERVAL 7 DAY");
         $currentWeekStmt->execute([$organizationId]);
         $currentWeek = (int) $currentWeekStmt->fetchColumn();
-        $previousWeekStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND created_at < DATE_SUB(NOW(), INTERVAL 7 DAY) AND created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)");
+        $previousWeekStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND created_at < NOW() - INTERVAL 7 DAY AND created_at >= NOW() - INTERVAL 14 DAY");
         $previousWeekStmt->execute([$organizationId]);
         $previousWeek = (int) $previousWeekStmt->fetchColumn();
-        $activeUsersStmt = $pdo->prepare('SELECT id, name, email, role, status, avatar, created_at, updated_at FROM users WHERE org_id = ? AND status = "active" ORDER BY name LIMIT 5');
+        $activeUsersStmt = $pdo->prepare("SELECT id, name, email, role, status, avatar, created_at, updated_at FROM users WHERE org_id = ? AND status = 'active' ORDER BY name LIMIT 5");
         $activeUsersStmt->execute([$organizationId]);
         $activeUsers = $activeUsersStmt->fetchAll();
-        $openBugsStmt = $pdo->prepare('SELECT COUNT(*) FROM bugs WHERE org_id = ? AND status = "open"');
+        $openBugsStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND status = 'open'");
         $openBugsStmt->execute([$organizationId]);
         $analyticsReportsStmt = $pdo->prepare('SELECT COUNT(*) FROM bugs WHERE org_id = ?');
         $analyticsReportsStmt->execute([$organizationId]);
-        $pendingVerificationStmt = $pdo->prepare('SELECT COUNT(*) FROM bugs WHERE org_id = ? AND status = "resolved" AND verified_at IS NULL');
+        $pendingVerificationStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND status = 'resolved' AND verified_at IS NULL");
         $pendingVerificationStmt->execute([$organizationId]);
-        $teamMembersStmt = $pdo->prepare('SELECT COUNT(*) FROM users WHERE org_id = ? AND status = "active"');
+        $teamMembersStmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE org_id = ? AND status = 'active'");
         $teamMembersStmt->execute([$organizationId]);
 
         json_response([
@@ -2487,7 +2539,7 @@ try {
 
         $totalBugsStmt = $pdo->prepare('SELECT COUNT(*) FROM bugs WHERE org_id = ?');
         $totalBugsStmt->execute([$organizationId]);
-        $activeProjectsStmt = $pdo->prepare('SELECT COUNT(*) FROM projects WHERE org_id = ? AND status = "active"');
+        $activeProjectsStmt = $pdo->prepare("SELECT COUNT(*) FROM projects WHERE org_id = ? AND status = 'active'");
         $activeProjectsStmt->execute([$organizationId]);
         $totalProjectsStmt = $pdo->prepare('SELECT COUNT(*) FROM projects WHERE org_id = ?');
         $totalProjectsStmt->execute([$organizationId]);
@@ -2501,12 +2553,12 @@ try {
             : 0;
 
         $projectRowsStmt = $pdo->prepare(
-            'SELECT p.name, COALESCE(AVG(CASE WHEN b.verified_at IS NOT NULL THEN TIMESTAMPDIFF(HOUR, b.created_at, b.verified_at) / 24 END), 0) AS avg_days
+            "SELECT p.name, COALESCE(AVG(CASE WHEN b.verified_at IS NOT NULL THEN TIMESTAMPDIFF(SECOND, b.created_at, b.verified_at) / 86400.0 END), 0) AS avg_days
              FROM projects p
              LEFT JOIN bugs b ON b.project_id = p.id AND b.org_id = p.org_id
              WHERE p.org_id = ?
              GROUP BY p.id, p.name
-             ORDER BY p.created_at ASC'
+             ORDER BY p.created_at ASC"
         );
         $projectRowsStmt->execute([$organizationId]);
         $projectRows = $projectRowsStmt->fetchAll();
@@ -2523,3 +2575,4 @@ try {
 } catch (Throwable $exception) {
     json_response(['message' => 'Server error', 'detail' => $exception->getMessage()], 500);
 }
+*/

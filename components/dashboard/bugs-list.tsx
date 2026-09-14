@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { api, type BlockchainBugEvent, type Bug, type BugAttachment, type Comment, type Project, type Sprint, type SystemSettings, type User } from '@/lib/api'
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { useForm } from 'react-hook-form'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { FieldErrors } from 'react-hook-form'
 
 interface NewBugFormData {
   title: string
@@ -58,6 +59,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
   const [testerMembers, setTesterMembers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [submitError, setSubmitError] = useState('')
   const [comments, setComments] = useState<Comment[]>([])
   const [attachments, setAttachments] = useState<BugAttachment[]>([])
   const [blockchainEvents, setBlockchainEvents] = useState<BlockchainBugEvent[]>([])
@@ -84,6 +86,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
   const isTesterVerificationOwner = user?.role === 'tester' && !!selectedBug && (
     selectedBug.verificationTesterEmail === user.email || selectedBug.reportedBy === user.email
   )
+  const dialogContentRef = useRef<HTMLDivElement | null>(null)
 
   const form = useForm<NewBugFormData>({
     defaultValues: {
@@ -290,32 +293,49 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
   }
 
   const onSubmitNewBug = async (data: NewBugFormData) => {
-  const result = await api.createBug({
-      ...data,
-      sprintId: data.sprintId === BACKLOG_VALUE ? '' : data.sprintId,
-      assignedTo: data.assignedTo === UNASSIGNED_VALUE ? '' : data.assignedTo,
-      reportedBy: user?.email || 'unknown@blockbug.dev',
-      verificationTesterEmail: user?.role === 'tester'
-        ? (user.email || '')
-        : (data.verificationTesterEmail === UNASSIGNED_VALUE ? '' : data.verificationTesterEmail),
-    }, attachmentFile)
-    setBugs(prev => [result.bug, ...prev])
-    window.dispatchEvent(new Event('blockbug:notifications-updated'))
-    setIsNewBugDialogOpen(false)
-    setAttachmentFile(null)
-    form.reset({
-      title: '',
-      description: '',
-      priority: defaults.default_bug_priority,
-      severity: defaults.default_bug_severity,
-      projectId: projects[0]?.id || '',
-      sprintId: BACKLOG_VALUE,
-      assignedTo: '',
-      verificationTesterEmail: '',
-      stepsToReproduce: '',
-      expectedResult: '',
-      actualResult: '',
-      environment: '',
+    setSubmitError('')
+    try {
+      const result = await api.createBug({
+        ...data,
+        sprintId: data.sprintId === BACKLOG_VALUE ? '' : data.sprintId,
+        assignedTo: data.assignedTo === UNASSIGNED_VALUE ? '' : data.assignedTo,
+        reportedBy: user?.email || 'unknown@blockbug.dev',
+        verificationTesterEmail: user?.role === 'tester'
+          ? (user.email || '')
+          : (data.verificationTesterEmail === UNASSIGNED_VALUE ? '' : data.verificationTesterEmail),
+      }, attachmentFile)
+      setBugs(prev => [result.bug, ...prev])
+      window.dispatchEvent(new Event('blockbug:notifications-updated'))
+      setIsNewBugDialogOpen(false)
+      setAttachmentFile(null)
+      form.reset({
+        title: '',
+        description: '',
+        priority: defaults.default_bug_priority,
+        severity: defaults.default_bug_severity,
+        projectId: projects[0]?.id || '',
+        sprintId: BACKLOG_VALUE,
+        assignedTo: '',
+        verificationTesterEmail: '',
+        stepsToReproduce: '',
+        expectedResult: '',
+        actualResult: '',
+        environment: '',
+      })
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Could not submit bug report')
+    }
+  }
+
+  const onInvalidNewBug = (errors: FieldErrors<NewBugFormData>) => {
+    setSubmitError('Please complete the required fields before submitting.')
+    const firstErrorField = Object.keys(errors)[0] as keyof NewBugFormData | undefined
+    if (!firstErrorField) return
+
+    window.requestAnimationFrame(() => {
+      const fieldElement = dialogContentRef.current?.querySelector<HTMLElement>(`[name="${String(firstErrorField)}"]`)
+      fieldElement?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      fieldElement?.focus()
     })
   }
 
@@ -520,12 +540,17 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                 New Bug Report
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent ref={dialogContentRef} className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Report New Bug</DialogTitle>
               </DialogHeader>
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmitNewBug)} className="space-y-6">
+                <form onSubmit={form.handleSubmit(onSubmitNewBug, onInvalidNewBug)} className="space-y-6">
+                  {submitError && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                      {submitError}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}

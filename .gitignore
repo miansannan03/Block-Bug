@@ -14,5 +14,12 @@ backend/.env
 # Common ignores
 node_modules
 .next/
+dist/
 .DS_Store
 backend/*.log
+.playwright-mcp/
+.vscode/
+backend/infinityfree-deploy-*/
+backend/infinityfree-htdocs-*/
+backend/infinityfree-deploy-*.zip
+backend/infinityfree-htdocs-*.zip
