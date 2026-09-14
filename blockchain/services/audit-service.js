@@ -1,3 +1,7 @@
+/*
+ * LEGACY BLOCKCHAIN CODE — intentionally commented out.
+ * Retained for reference; the Laravel API never starts this service.
+ *
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
@@ -143,3 +147,4 @@ const port = Number(process.env.BLOCKCHAIN_SERVICE_PORT || 8787);
 server.listen(port, () => {
   console.log(`BlockBug blockchain audit service listening on http://127.0.0.1:${port}`);
 });
+*/

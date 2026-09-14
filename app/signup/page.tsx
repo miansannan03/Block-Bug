@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/lib/auth-context'
 import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
 import { Button } from '@/components/ui/button'
@@ -20,7 +19,7 @@ export default function SignupPage() {
   const [adminPassword, setAdminPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
+  const navigate = useNavigate()
   const { signup } = useAuth()
   const { settings } = useSystemSettings()
 
@@ -42,7 +41,7 @@ export default function SignupPage() {
         adminEmail,
         adminPassword,
       )
-      router.push('/dashboard')
+      navigate('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Signup failed')
     } finally {
@@ -150,7 +149,7 @@ export default function SignupPage() {
 
           <div className="mt-6 text-center text-sm text-muted-foreground">
             Already have an account?{' '}
-            <Link href="/login" className="text-primary hover:underline font-medium">
+            <Link to="/login" className="text-primary hover:underline font-medium">
               Sign in
             </Link>
           </div>

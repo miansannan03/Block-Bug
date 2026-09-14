@@ -1,3 +1,7 @@
+/*
+ * LEGACY BLOCKCHAIN CODE — intentionally commented out.
+ * Retained for reference; the Laravel API never executes this script.
+ *
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,3 +88,4 @@ try {
   const message = error instanceof Error ? error.message : "Unexpected blockchain CLI failure";
   fail(message);
 }
+*/

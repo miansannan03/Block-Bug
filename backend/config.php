@@ -44,9 +44,9 @@ function database_config(): array
         if (is_array($parts)) {
             return [
                 'host' => isset($parts['host']) ? (string) $parts['host'] : env_value('DB_HOST', '127.0.0.1'),
-                'port' => isset($parts['port']) ? (string) $parts['port'] : env_value('DB_PORT', '5432'),
+                'port' => isset($parts['port']) ? (string) $parts['port'] : env_value('DB_PORT', '3306'),
                 'database' => isset($parts['path']) ? ltrim((string) $parts['path'], '/') : env_value('DB_DATABASE', 'blockbug'),
-                'username' => isset($parts['user']) ? urldecode((string) $parts['user']) : env_value('DB_USERNAME', 'postgres'),
+                'username' => isset($parts['user']) ? urldecode((string) $parts['user']) : env_value('DB_USERNAME', 'root'),
                 'password' => isset($parts['pass']) ? urldecode((string) $parts['pass']) : env_value('DB_PASSWORD', ''),
             ];
         }
@@ -54,9 +54,9 @@ function database_config(): array
 
     return [
         'host' => env_value('DB_HOST', '127.0.0.1'),
-        'port' => env_value('DB_PORT', '5432'),
+        'port' => env_value('DB_PORT', '3306'),
         'database' => env_value('DB_DATABASE', 'blockbug'),
-        'username' => env_value('DB_USERNAME', 'postgres'),
+        'username' => env_value('DB_USERNAME', 'root'),
         'password' => env_value('DB_PASSWORD', ''),
     ];
 }
@@ -76,7 +76,7 @@ function db(): PDO
     $username = $databaseConfig['username'];
     $password = $databaseConfig['password'];
 
-    $dsn = "pgsql:host={$host};port={$port};dbname={$database}";
+    $dsn = "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4";
     $pdo = new PDO($dsn, $username, $password, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -88,12 +88,26 @@ function db(): PDO
 
 function db_server(): PDO
 {
-    return db();
+    $databaseConfig = database_config();
+    $dsn = "mysql:host={$databaseConfig['host']};port={$databaseConfig['port']};charset=utf8mb4";
+
+    return new PDO($dsn, $databaseConfig['username'], $databaseConfig['password'], [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
 }
 
 function ensure_database_exists(): void
 {
-    // PostgreSQL databases are provisioned ahead of time.
+    $database = database_config()['database'];
+    if (!preg_match('/^[A-Za-z0-9_-]+$/', $database)) {
+        throw new RuntimeException('Invalid database name.');
+    }
+
+    db_server()->exec(
+        "CREATE DATABASE IF NOT EXISTS `{$database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    );
 }
 
 function json_response($payload, int $status = 200): void

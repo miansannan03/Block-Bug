@@ -231,13 +231,14 @@ export interface NewBugPayload {
 }
 
 const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL ||
-  'http://127.0.0.1:8000'
+  import.meta.env.VITE_API_URL ||
+  'http://127.0.0.1:8000/api'
 ).replace(/\/+$/, '')
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
   const headers = new Headers(init?.headers ?? {})
+  headers.set('Accept', 'application/json')
   if (!isFormData && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }

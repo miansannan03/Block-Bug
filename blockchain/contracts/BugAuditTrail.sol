@@ -1,3 +1,7 @@
+/*
+LEGACY BLOCKCHAIN CODE — intentionally commented out.
+The active application does not compile or deploy this contract.
+
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
@@ -82,3 +86,4 @@ contract BugAuditTrail {
         return chainId;
     }
 }
+*/

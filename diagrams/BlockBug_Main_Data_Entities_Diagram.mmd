@@ -1,0 +1,151 @@
+erDiagram
+    %% BlockBug Main Data Entities
+
+    ORGANIZATION ||--o{ USER : contains
+    ORGANIZATION ||--o{ PROJECT : owns
+    ORGANIZATION ||--o{ SPRINT : plans
+    ORGANIZATION ||--o{ BUG : tracks
+    ORGANIZATION ||--o{ ACTIVITY : records
+    ORGANIZATION ||--o{ NOTIFICATION : issues
+    ORGANIZATION ||--|| SYSTEM_SETTING : configures
+
+    USER ||--o{ USER_PREFERENCE : has
+    USER ||--o{ API_KEY : owns
+    USER ||--o{ BUG : reports
+    USER o|--o{ BUG : develops
+    USER o|--o{ BUG : verifies
+    USER ||--o{ COMMENT : writes
+    USER ||--o{ ACTIVITY : performs
+    USER o|--o{ NOTIFICATION : receives
+
+    PROJECT ||--o{ SPRINT : contains
+    PROJECT ||--o{ BUG : groups
+    SPRINT o|--o{ BUG : schedules
+
+    BUG ||--o{ COMMENT : has
+    COMMENT o|--o{ COMMENT : replies_to
+    BUG ||--o{ ATTACHMENT : includes
+    BUG ||--o{ ACTIVITY : generates
+    BUG ||--o{ NOTIFICATION : triggers
+    BUG ||--o{ BLOCKCHAIN_EVENT : audits
+
+    ORGANIZATION {
+        string id PK
+        string name
+        string login_email UK
+        string status
+    }
+
+    USER {
+        string id PK
+        string organization_id FK
+        string name
+        string email
+        string role
+        string status
+        string avatar
+    }
+
+    USER_PREFERENCE {
+        string id PK
+        string user_id FK
+        string preference_key
+        boolean enabled
+    }
+
+    API_KEY {
+        string id PK
+        string user_id FK
+        string label
+        string key_prefix
+        datetime created_at
+    }
+
+    SYSTEM_SETTING {
+        string setting_key PK
+        string setting_value
+    }
+
+    PROJECT {
+        string id PK
+        string organization_id FK
+        string project_key
+        string name
+        string status
+    }
+
+    SPRINT {
+        string id PK
+        string organization_id FK
+        string project_id FK
+        string name
+        string goal
+        string status
+        date start_date
+        date end_date
+    }
+
+    BUG {
+        string id PK
+        string organization_id FK
+        string project_id FK
+        string sprint_id FK
+        string title
+        string status
+        string priority
+        string severity
+        string reported_by FK
+        string assigned_to FK
+        string verification_tester_email FK
+        string blockchain_last_tx_hash
+    }
+
+    COMMENT {
+        string id PK
+        string bug_id FK
+        string parent_comment_id FK
+        string user_email FK
+        string comment
+        datetime created_at
+    }
+
+    ATTACHMENT {
+        string id PK
+        string bug_id FK
+        string file_name
+        string file_path
+        string mime_type
+        int file_size
+    }
+
+    ACTIVITY {
+        string id PK
+        string organization_id FK
+        string bug_id FK
+        string user_id FK
+        string type
+        string message
+        datetime created_at
+    }
+
+    NOTIFICATION {
+        string id PK
+        string organization_id FK
+        string user_email FK
+        string type
+        string entity_type
+        string entity_id
+        boolean is_read
+    }
+
+    BLOCKCHAIN_EVENT {
+        string id PK
+        string bug_id FK
+        string action
+        string sync_status
+        string transaction_hash
+        bigint blockchain_event_id
+        string bug_chain_id
+        string contract_address
+        string error_message
+    }

@@ -1,0 +1,34 @@
+flowchart TD
+    %% Active BlockBug data flow
+
+    USER["User"]
+    UI["Vite + React UI<br/>including blockchain product wording"]
+    VALIDATE["Client-side validation"]
+    API["Laravel REST API"]
+    RULES{"Validation and role<br/>rules satisfied?"}
+    DB[("Laragon MySQL")]
+    RESPONSE["JSON response"]
+    REJECT["Validation or authorization error"]
+
+    USER -->|"Performs action"| UI
+    UI --> VALIDATE
+    VALIDATE --> API
+    API --> RULES
+    RULES -->|"No"| REJECT --> UI
+    RULES -->|"Yes"| DB
+    DB --> API
+    API --> RESPONSE --> UI
+
+    classDef user fill:#E8F1FF,stroke:#2457A7,color:#102A43,stroke-width:1.5px;
+    classDef frontend fill:#E8FFF4,stroke:#147D64,color:#12372D,stroke-width:1.5px;
+    classDef backend fill:#FFF4DC,stroke:#B7791F,color:#513B10,stroke-width:1.5px;
+    classDef database fill:#F0EBFF,stroke:#6B46C1,color:#2D1B69,stroke-width:1.5px;
+    classDef audit fill:#FFE8E8,stroke:#C53030,color:#5B1717,stroke-width:1.5px;
+    classDef chain fill:#E6FAFF,stroke:#087E8B,color:#073B4C,stroke-width:1.5px;
+    classDef decision fill:#FFFCE8,stroke:#A07900,color:#4A3B00,stroke-width:1.5px;
+
+    class USER user;
+    class UI,VALIDATE frontend;
+    class API,RESPONSE,REJECT backend;
+    class DB database;
+    class RULES decision;

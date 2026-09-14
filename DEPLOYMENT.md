@@ -1,40 +1,25 @@
-# Deployment Notes
+# Local Development
 
-## Backend on Render
+BlockBug now runs as two ordinary applications:
 
-Use the `backend/` directory as the Render service root. The backend already includes:
+- Vite + React frontend at `http://localhost:5173`
+- Laravel API at `http://127.0.0.1:8000/api`
+- Laragon MySQL database named `blockbug`
 
-- `backend/Dockerfile` for container build
-- `backend/render-start.sh` as the container start command
-- PostgreSQL migrations in `backend/database/`
+Start Laragon's MySQL service first. Then use two terminals from the repository root:
 
-### Required Render environment variables
+```powershell
+npm run dev:api
+```
 
-- `DATABASE_URL` - preferred on Render; use the Render Postgres internal connection string
-- `DB_HOST` - optional fallback if you are not using `DATABASE_URL`
-- `DB_PORT` - optional fallback, usually `5432`
-- `DB_DATABASE` - optional fallback database name
-- `DB_USERNAME` - optional fallback database user
-- `DB_PASSWORD` - optional fallback database password
-- `APP_URL` - optional; Render also provides `RENDER_EXTERNAL_URL` automatically
-- `FRONTEND_URL` - the public Vercel frontend URL
-- `BLOCKCHAIN_ENABLED` - set `true` if you want blockchain syncing enabled
-- `BLOCKCHAIN_AUDIT_SERVICE_URL` - backend service URL if blockchain syncing is used
-- `BLOCKCHAIN_NODE_BINARY` - usually `node`
+```powershell
+npm run dev
+```
 
-The repo now includes a root `render.yaml` Blueprint for a Docker-based backend service plus a Render Postgres database.
+For a fresh database, run:
 
-## Frontend on Vercel
+```powershell
+C:\laragon\bin\php\php-8.2.21-nts-Win32-vs16-x64\php.exe laravel-api\artisan migrate --seed
+```
 
-Set this environment variable in Vercel:
-
-- `NEXT_PUBLIC_API_URL` - the public Render backend URL
-
-Then redeploy the frontend so the client uses the new API base URL.
-
-## Local Development
-
-- Backend: `http://127.0.0.1:8000`
-- Frontend: `http://localhost:3000` or `http://localhost:5173`
-
-The root `.env.local` currently points the frontend at the local backend for development.
+Configuration lives in `.env.local` for the frontend and `laravel-api/.env` for Laravel. The former custom PHP backend and blockchain workspace are retained only as commented legacy reference code and are not part of the runtime.

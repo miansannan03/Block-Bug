@@ -2,14 +2,14 @@
   "name": "blockbug-blockchain",
   "version": "0.1.0",
   "private": true,
-  "description": "Isolated blockchain workspace for BlockBug audit-trail integration.",
+  "description": "Disabled legacy blockchain workspace retained for reference only.",
   "type": "module",
   "scripts": {
-    "hardhat": "hardhat",
-    "chain": "hardhat node",
-    "compile": "hardhat compile",
-    "deploy:local": "node scripts/deploy.js",
-    "service": "node services/audit-service.js"
+    "hardhat": "node -e \"console.log('Legacy blockchain runtime is disabled')\"",
+    "chain": "node -e \"console.log('Legacy blockchain runtime is disabled')\"",
+    "compile": "node -e \"console.log('Legacy blockchain runtime is disabled')\"",
+    "deploy:local": "node -e \"console.log('Legacy blockchain runtime is disabled')\"",
+    "service": "node -e \"console.log('Legacy blockchain runtime is disabled')\""
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^4.0.9",

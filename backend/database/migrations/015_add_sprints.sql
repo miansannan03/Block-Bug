@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS sprints (
   created_by VARCHAR(180) NULL,
   completed_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT sprints_org_fk FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
   CONSTRAINT sprints_project_fk FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
@@ -18,11 +18,6 @@ CREATE TABLE IF NOT EXISTS sprints (
 CREATE INDEX sprints_org_idx ON sprints (org_id);
 CREATE INDEX sprints_project_idx ON sprints (project_id);
 CREATE INDEX sprints_project_status_idx ON sprints (project_id, status);
-
-CREATE TRIGGER sprints_set_updated_at
-BEFORE UPDATE ON sprints
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
 
 ALTER TABLE bugs
   ADD COLUMN sprint_id VARCHAR(36) NULL,

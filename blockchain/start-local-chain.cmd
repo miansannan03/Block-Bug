@@ -1,3 +1,4 @@
-@echo off
-cd /d %~dp0
-npx.cmd hardhat node
+@REM LEGACY BLOCKCHAIN STARTER - intentionally disabled and retained for reference.
+@REM @echo off
+@REM cd /d %~dp0
+@REM npx.cmd hardhat node

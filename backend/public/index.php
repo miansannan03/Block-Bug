@@ -1,5 +1,19 @@
 <?php
 
+http_response_code(410);
+header('Content-Type: application/json');
+echo json_encode([
+    'message' => 'This legacy PHP API is disabled. Use the Laravel API in /laravel-api.',
+]);
+
+/*
+ * LEGACY CUSTOM PHP API - intentionally commented out.
+ *
+ * The complete implementation is retained below for reference, including the
+ * former blockchain integration. The active backend is now Laravel and does
+ * not execute any blockchain service, CLI, smart contract, or node code.
+ *
+
 declare(strict_types=1);
 
 require __DIR__ . '/../config.php';
@@ -697,15 +711,31 @@ function record_sprint_bug_history(
     ]);
 }
 
-function blockchain_service_url(): ?string
+function blockchain_service_urls(): array
 {
     $enabled = strtolower((string) env_value('BLOCKCHAIN_ENABLED', 'false'));
     if (in_array($enabled, ['0', 'false', 'off', 'no'], true)) {
-        return null;
+        return [];
     }
 
-    $url = trim((string) env_value('BLOCKCHAIN_AUDIT_SERVICE_URL', 'http://127.0.0.1:8787'));
-    return $url !== '' ? rtrim($url, '/') : null;
+    $urls = [];
+    $primaryUrl = trim((string) env_value('BLOCKCHAIN_AUDIT_SERVICE_URL', 'http://127.0.0.1:8787'));
+    if ($primaryUrl !== '') {
+        $urls[] = rtrim($primaryUrl, '/');
+    }
+
+    $fallbackUrl = trim((string) env_value('BLOCKCHAIN_AUDIT_SERVICE_FALLBACK_URL', ''));
+    if ($fallbackUrl !== '') {
+        $urls[] = rtrim($fallbackUrl, '/');
+    }
+
+    return $urls;
+}
+
+function blockchain_service_url(): ?string
+{
+    $urls = blockchain_service_urls();
+    return !empty($urls) ? $urls[0] : null;
 }
 
 function blockchain_http_json(string $method, string $url, ?array $payload = null): array
@@ -816,8 +846,8 @@ function record_bug_blockchain_event(
     );
     $insert->execute([$eventId, $bugId, $action, $actorEmail, $metadataJson]);
 
-    $serviceUrl = blockchain_service_url();
-    if ($serviceUrl === null) {
+    $serviceUrls = blockchain_service_urls();
+    if (empty($serviceUrls)) {
         $update = $pdo->prepare(
             "UPDATE bug_blockchain_events
              SET sync_status = 'failed', error_message = ?, service_response = ?, updated_at = ?
@@ -847,9 +877,22 @@ function record_bug_blockchain_event(
             'actorRole' => $actorRole ?: 'system',
             'metadata' => $metadata,
         ];
-        $response = blockchain_http_json('POST', $serviceUrl . '/record-bug-event', $payload);
 
-        if ($response['statusCode'] === 0) {
+        $response = null;
+        $lastError = null;
+
+        // Try each service URL in sequence
+        foreach ($serviceUrls as $serviceUrl) {
+            $response = blockchain_http_json('POST', $serviceUrl . '/record-bug-event', $payload);
+            if ($response['statusCode'] !== 0) {
+                // Got a response from this URL (either success or error), stop trying others
+                break;
+            }
+            $lastError = "Failed to connect to {$serviceUrl}";
+        }
+
+        // If all service URLs failed to connect (statusCode === 0), try CLI
+        if ($response === null || $response['statusCode'] === 0) {
             $body = blockchain_cli_json($payload);
             $response = [
                 'statusCode' => 201,
@@ -2210,8 +2253,7 @@ try {
         ];
         $stmt = $pdo->prepare(
             "INSERT INTO user_preferences (id, user_id, preference_key, enabled) VALUES (?, ?, ?, ?)
-             ON CONFLICT (user_id, preference_key)
-             DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = CURRENT_TIMESTAMP"
+             ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), updated_at = CURRENT_TIMESTAMP"
         );
         foreach ($preferences as $key => $enabled) {
             $stmt->execute(['pref-' . $data['userId'] . '-' . $key, $data['userId'], $key, $enabled]);
@@ -2237,8 +2279,7 @@ try {
         }
         $stmt = $pdo->prepare(
             "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
-             ON CONFLICT (setting_key)
-             DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP"
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP"
         );
         foreach ($settings as $key => $value) {
             $stmt->execute([$key, json_encode($value, JSON_THROW_ON_ERROR)]);
@@ -2355,7 +2396,7 @@ try {
             $date = date('Y-m-d', strtotime("-{$i} days"));
             $days[$date] = 0;
         }
-        $stmt = $pdo->prepare("SELECT DATE(created_at) AS day, COUNT(*) AS total FROM bugs WHERE org_id = ? AND created_at >= CURRENT_DATE - INTERVAL '6 days' GROUP BY DATE(created_at)");
+        $stmt = $pdo->prepare("SELECT DATE(created_at) AS day, COUNT(*) AS total FROM bugs WHERE org_id = ? AND created_at >= CURRENT_DATE - INTERVAL 6 DAY GROUP BY DATE(created_at)");
         $stmt->execute([$organizationId]);
         foreach ($stmt->fetchAll() as $row) {
             if (isset($days[$row['day']])) {
@@ -2363,10 +2404,10 @@ try {
             }
         }
 
-        $currentWeekStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND created_at >= NOW() - INTERVAL '7 days'");
+        $currentWeekStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND created_at >= NOW() - INTERVAL 7 DAY");
         $currentWeekStmt->execute([$organizationId]);
         $currentWeek = (int) $currentWeekStmt->fetchColumn();
-        $previousWeekStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND created_at < NOW() - INTERVAL '7 days' AND created_at >= NOW() - INTERVAL '14 days'");
+        $previousWeekStmt = $pdo->prepare("SELECT COUNT(*) FROM bugs WHERE org_id = ? AND created_at < NOW() - INTERVAL 7 DAY AND created_at >= NOW() - INTERVAL 14 DAY");
         $previousWeekStmt->execute([$organizationId]);
         $previousWeek = (int) $previousWeekStmt->fetchColumn();
         $activeUsersStmt = $pdo->prepare("SELECT id, name, email, role, status, avatar, created_at, updated_at FROM users WHERE org_id = ? AND status = 'active' ORDER BY name LIMIT 5");
@@ -2512,7 +2553,7 @@ try {
             : 0;
 
         $projectRowsStmt = $pdo->prepare(
-            "SELECT p.name, COALESCE(AVG(CASE WHEN b.verified_at IS NOT NULL THEN EXTRACT(EPOCH FROM (b.verified_at - b.created_at)) / 86400.0 END), 0) AS avg_days
+            "SELECT p.name, COALESCE(AVG(CASE WHEN b.verified_at IS NOT NULL THEN TIMESTAMPDIFF(SECOND, b.created_at, b.verified_at) / 86400.0 END), 0) AS avg_days
              FROM projects p
              LEFT JOIN bugs b ON b.project_id = p.id AND b.org_id = p.org_id
              WHERE p.org_id = ?
@@ -2534,3 +2575,4 @@ try {
 } catch (Throwable $exception) {
     json_response(['message' => 'Server error', 'detail' => $exception->getMessage()], 500);
 }
+*/

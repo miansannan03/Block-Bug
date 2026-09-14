@@ -17,7 +17,7 @@ function insert_row(PDO $pdo, string $table, array $data): void
     $values = array_map(
         static function ($value) {
             if (is_bool($value)) {
-                return $value ? 'true' : 'false';
+                return $value ? 1 : 0;
             }
 
             return $value;
@@ -40,23 +40,29 @@ function default_organization_seed(PDO $pdo): array
 
 function run_seed(PDO $pdo): void
 {
-    $pdo->exec(
-        'TRUNCATE TABLE
-            api_keys,
-            user_preferences,
-            notifications,
-            bug_comments,
-            integrations,
-            activities,
-            bug_blockchain_events,
-            sprint_bug_history,
-            bugs,
-            sprints,
-            projects,
-            users,
-            organizations
-         RESTART IDENTITY CASCADE'
-    );
+    $tables = [
+        'api_keys',
+        'user_preferences',
+        'notifications',
+        'bug_comments',
+        'integrations',
+        'activities',
+        // 'bug_blockchain_events', // Legacy blockchain table; inactive in Laravel.
+        'sprint_bug_history',
+        'bugs',
+        'sprints',
+        'projects',
+        'users',
+        'organizations',
+    ];
+    $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+    try {
+        foreach ($tables as $table) {
+            $pdo->exec("TRUNCATE TABLE `{$table}`");
+        }
+    } finally {
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+    }
 
     $organization = default_organization_seed($pdo);
     insert_row($pdo, 'organizations', $organization);

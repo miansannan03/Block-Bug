@@ -24,15 +24,10 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   preference_key VARCHAR(80) NOT NULL,
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT user_preferences_user_key_unique UNIQUE (user_id, preference_key),
   CONSTRAINT user_preferences_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-
-CREATE TRIGGER user_preferences_set_updated_at
-BEFORE UPDATE ON user_preferences
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE IF NOT EXISTS api_keys (
   id VARCHAR(36) PRIMARY KEY,
@@ -53,11 +48,6 @@ CREATE TABLE IF NOT EXISTS integrations (
   icon VARCHAR(12) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('connected', 'available')),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT integrations_name_unique UNIQUE (name)
 );
-
-CREATE TRIGGER integrations_set_updated_at
-BEFORE UPDATE ON integrations
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();

@@ -5,14 +5,9 @@ CREATE TABLE IF NOT EXISTS organizations (
   password_hash VARCHAR(255) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT organizations_login_email_unique UNIQUE (login_email)
 );
-
-CREATE TRIGGER organizations_set_updated_at
-BEFORE UPDATE ON organizations
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at();
 
 ALTER TABLE users
   ADD COLUMN org_id VARCHAR(36) NULL,
