@@ -4,8 +4,9 @@ import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { BarChart3, Bug, FolderOpen, Settings, Home, Moon, Sun, HelpCircle, Users } from 'lucide-react'
 import type { UserRole } from '@/lib/api'
-import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
+import { useSystemSettings } from '@/lib/system-settings-context'
 import { useTheme } from '@/components/theme-provider'
+import { BlockBugLogo } from '@/components/blockbug-logo'
 
 interface SidebarProps {
   currentPage: string
@@ -63,15 +64,10 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
       <div className="p-6 border-b border-sidebar-border">
         <Link
           to="/"
-          className="flex items-center gap-3 rounded-xl border border-sidebar-border/80 bg-sidebar-accent/60 px-4 py-3 hover:bg-sidebar-accent/70 transition"
+          className="flex justify-center rounded-xl border border-sidebar-border/80 bg-sidebar-accent/60 px-3 py-2 hover:bg-sidebar-accent/70 transition"
+          aria-label={`${settings.app_name} home`}
         >
-          <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center shadow-lg">
-            <span className="text-sidebar-primary-foreground font-bold text-lg">{getAppInitial(settings.app_name)}</span>
-          </div>
-          <div>
-            <span className="font-bold text-lg text-sidebar-foreground block">{settings.app_name}</span>
-            <span className="text-xs text-muted-foreground">Team Edition</span>
-          </div>
+          <BlockBugLogo appName={settings.app_name} className="h-12" />
         </Link>
       </div>
 

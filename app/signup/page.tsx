@@ -3,12 +3,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/lib/auth-context'
-import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
+import { useSystemSettings } from '@/lib/system-settings-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertCircle } from 'lucide-react'
+import { BlockBugLogo } from '@/components/blockbug-logo'
 
 export default function SignupPage() {
   const [organizationName, setOrganizationName] = useState('')
@@ -53,12 +54,9 @@ export default function SignupPage() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
       <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="flex items-center gap-2 mb-8 justify-center">
-          <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-lg">{getAppInitial(settings.app_name)}</span>
-          </div>
-          <span className="font-bold text-xl text-foreground">{settings.app_name}</span>
-        </div>
+        <Link to="/" className="mb-8 flex justify-center" aria-label={`${settings.app_name} home`}>
+          <BlockBugLogo appName={settings.app_name} className="h-16" />
+        </Link>
 
         <Card className="p-8 border border-border">
           <h1 className="text-2xl font-bold mb-2">Create Organization</h1>
