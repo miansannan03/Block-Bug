@@ -129,7 +129,28 @@ jobs:
           eval "$(ssh-agent -s)" >/dev/null
           printf 'SSH_AUTH_SOCK=%s\n' "$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
           printf 'SSH_AGENT_PID=%s\n' "$SSH_AGENT_PID" >> "$GITHUB_ENV"
-          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - >/dev/null
+
+          private_key_file="/tmp/blockbug-ssh-key-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          umask 077
+          if [[ "$SSH_PRIVATE_KEY" == *'\\n'* ]]; then
+            printf '%b\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$private_key_file"
+          elif [[ "$SSH_PRIVATE_KEY" == -----BEGIN*PRIVATE\ KEY-----* ]]; then
+            printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$private_key_file"
+          elif printf '%s' "$SSH_PRIVATE_KEY" | base64 --decode > "$private_key_file" 2>/dev/null; then
+            tr -d '\r' < "$private_key_file" > "$private_key_file.normalized"
+            mv -f -- "$private_key_file.normalized" "$private_key_file"
+          else
+            echo "::error::SSH_PRIVATE_KEY is neither an OpenSSH/PEM private key nor its base64 encoding."
+            exit 1
+          fi
+          chmod 600 "$private_key_file"
+          ssh-keygen -y -f "$private_key_file" >/dev/null 2>&1 || {
+            rm -f -- "$private_key_file"
+            echo "::error::SSH_PRIVATE_KEY is invalid, encrypted, public-only, or in PuTTY PPK format. Store an unencrypted OpenSSH private key."
+            exit 1
+          }
+          ssh-add "$private_key_file" >/dev/null
+          rm -f -- "$private_key_file"
 
           install -d -m 700 "$HOME/.ssh"
           known_hosts_new="$HOME/.ssh/known_hosts.blockbug-new"
