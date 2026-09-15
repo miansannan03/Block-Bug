@@ -3,6 +3,7 @@
         Options -MultiViews -Indexes
     </IfModule>
 
+    DirectoryIndex index.html
     RewriteEngine On
 
     # Handle Authorization Header
@@ -18,8 +19,20 @@
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
-    # Send Requests To Front Controller...
+    # Serve committed and Vite-generated files directly.
+    RewriteCond %{REQUEST_FILENAME} -d [OR]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # Keep the Laravel API and framework health endpoint behind index.php.
+    RewriteRule ^api(?:/.*)?$ index.php [L,QSA]
+    RewriteRule ^up$ index.php [L,QSA]
+
+    # Missing upload/storage paths are server 404s, not SPA pages.
+    RewriteRule ^(?:uploads|storage)(?:/.*)?$ index.php [L,QSA]
+
+    # React Router owns every remaining non-file route.
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteRule ^ index.php [L]
+    RewriteRule ^ index.html [L]
 </IfModule>

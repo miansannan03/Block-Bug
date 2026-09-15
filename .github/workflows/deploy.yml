@@ -1,0 +1,647 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blockbug-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy frontend and Laravel API
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    env:
+      PUBLIC_STAGE: ${{ runner.temp }}/blockbug-public-${{ github.run_id }}-${{ github.run_attempt }}
+      LOCAL_ENV_PAYLOAD: ${{ runner.temp }}/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
+      REMOTE_SCRIPT: /tmp/blockbug-deploy-${{ github.run_id }}-${{ github.run_attempt }}.sh
+      REMOTE_ENV_PAYLOAD: /tmp/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
+
+    steps:
+      - name: Check out selected ref
+        uses: actions/checkout@v4
+        timeout-minutes: 2
+
+      - name: Validate deployment configuration
+        shell: bash
+        timeout-minutes: 1
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          APP_PATH: ${{ secrets.APP_PATH }}
+          DB_DATABASE: ${{ secrets.DB_DATABASE }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          required=(
+            SSH_PRIVATE_KEY SSH_HOST SSH_PORT SSH_USER APP_PATH
+            DB_DATABASE DB_USERNAME DB_PASSWORD
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Required production secret ${name} is not configured."
+              exit 1
+            fi
+          done
+
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] || {
+            echo "::error::SSH_PORT must be numeric."
+            exit 1
+          }
+          (( SSH_PORT >= 1 && SSH_PORT <= 65535 )) || {
+            echo "::error::SSH_PORT is outside the valid port range."
+            exit 1
+          }
+          [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || {
+            echo "::error::SSH_HOST contains unsupported characters."
+            exit 1
+          }
+          [[ "$SSH_USER" =~ ^[A-Za-z0-9._-]+$ ]] || {
+            echo "::error::SSH_USER contains unsupported characters."
+            exit 1
+          }
+          for path_name in APP_PATH; do
+            path_value="${!path_name}"
+            [[ "$path_value" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+              echo "::error::${path_name} must be an absolute Unix path using safe path characters."
+              exit 1
+            }
+          done
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        timeout-minutes: 5
+
+      - name: Verify frontend types
+        run: npm run lint
+        timeout-minutes: 5
+
+      - name: Build frontend
+        run: npm run build
+        timeout-minutes: 8
+        env:
+          VITE_API_URL: /api
+
+      - name: Verify and stage the public document root
+        shell: bash
+        timeout-minutes: 2
+        run: |
+          set -Eeuo pipefail
+          test -f dist/index.html
+          test -d dist/assets
+          find dist/assets -type f -print -quit | grep -q .
+          test -f laravel-api/public/index.php
+          test -f laravel-api/public/.htaccess
+
+          mkdir -p "$PUBLIC_STAGE"
+          rsync -a laravel-api/public/ "$PUBLIC_STAGE/"
+          rsync -a dist/ "$PUBLIC_STAGE/"
+
+          test -f "$PUBLIC_STAGE/index.html"
+          test -f "$PUBLIC_STAGE/index.php"
+          test -f "$PUBLIC_STAGE/.htaccess"
+
+      - name: Start SSH agent and configure host keys
+        id: ssh
+        shell: bash
+        timeout-minutes: 1
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          set -Eeuo pipefail
+          eval "$(ssh-agent -s)" >/dev/null
+          printf 'SSH_AUTH_SOCK=%s\n' "$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          printf 'SSH_AGENT_PID=%s\n' "$SSH_AGENT_PID" >> "$GITHUB_ENV"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - >/dev/null
+
+          install -d -m 700 "$HOME/.ssh"
+          known_hosts_new="$HOME/.ssh/known_hosts.blockbug-new"
+          ssh-keyscan -T 10 -p "$SSH_PORT" "$SSH_HOST" > "$known_hosts_new" 2>/dev/null
+          test -s "$known_hosts_new" || {
+            echo "::error::Could not obtain the SSH server host key."
+            exit 1
+          }
+          mv -f -- "$known_hosts_new" "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -l -f "$HOME/.ssh/known_hosts" >/dev/null
+
+          host_lookup="$SSH_HOST"
+          if [[ "$SSH_PORT" != 22 ]]; then
+            host_lookup="[$SSH_HOST]:$SSH_PORT"
+          fi
+          ssh-keygen -F "$host_lookup" -f "$HOME/.ssh/known_hosts" >/dev/null || {
+            echo "::error::The scanned host-key file has no entry for the configured host and port."
+            exit 1
+          }
+          echo "::warning::SSH host keys are trusted on first use because SSH_KNOWN_HOSTS is not configured."
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Discover cPanel paths and PHP toolchain
+        shell: bash
+        timeout-minutes: 2
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -Eeuo pipefail
+          ssh_args=(
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o ConnectTimeout=15
+          )
+
+          discovery=$(ssh "${ssh_args[@]}" "$SSH_USER@$SSH_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          command -v realpath >/dev/null || {
+            echo "The remote server does not provide realpath." >&2
+            exit 1
+          }
+          public_path=$(realpath -m -- "$HOME/public_html")
+          [[ "$public_path" =~ ^/[A-Za-z0-9._/-]+$ ]] || exit 1
+
+          php_candidates=()
+          if command -v php >/dev/null; then
+            php_candidates+=("$(command -v php)")
+          fi
+          php_candidates+=(
+            /opt/cpanel/ea-php82/root/usr/bin/php
+            /opt/cpanel/ea-php83/root/usr/bin/php
+            /opt/cpanel/ea-php84/root/usr/bin/php
+          )
+          php_binary=
+          for candidate in "${php_candidates[@]}"; do
+            if [[ "$candidate" =~ ^/[A-Za-z0-9._/-]+$ && -x "$candidate" ]] && \
+              "$candidate" -r 'exit(version_compare(PHP_VERSION, "8.2.0", ">=") ? 0 : 1);'; then
+              php_binary=$candidate
+              break
+            fi
+          done
+          [[ -n "$php_binary" ]] || {
+            echo "No compatible PHP 8.2+ CLI executable was found." >&2
+            exit 1
+          }
+
+          composer_candidates=()
+          if command -v composer >/dev/null; then
+            composer_candidates+=("$(command -v composer)")
+          fi
+          composer_candidates+=(
+            /usr/local/bin/composer
+            /opt/cpanel/composer/bin/composer
+            "$HOME/composer.phar"
+          )
+          composer_binary=
+          for candidate in "${composer_candidates[@]}"; do
+            if [[ "$candidate" =~ ^/[A-Za-z0-9._/-]+$ && -r "$candidate" ]] && \
+              "$php_binary" "$candidate" --version >/dev/null 2>&1; then
+              composer_binary=$candidate
+              break
+            fi
+          done
+          [[ -n "$composer_binary" ]] || {
+            echo "No Composer executable or PHAR compatible with the selected PHP was found." >&2
+            exit 1
+          }
+
+          printf 'PUBLIC_PATH=%s\nPHP_BINARY=%s\nCOMPOSER_BINARY=%s\n' \
+            "$public_path" "$php_binary" "$composer_binary"
+          REMOTE
+          )
+
+          public_path=
+          php_binary=
+          composer_binary=
+          while IFS='=' read -r name value; do
+            case "$name" in
+              PUBLIC_PATH) public_path=$value ;;
+              PHP_BINARY) php_binary=$value ;;
+              COMPOSER_BINARY) composer_binary=$value ;;
+              *) echo "::error::Unexpected server discovery output."; exit 1 ;;
+            esac
+          done <<< "$discovery"
+
+          for value in "$public_path" "$php_binary" "$composer_binary"; do
+            [[ "$value" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+              echo "::error::Server discovery returned an invalid path."
+              exit 1
+            }
+          done
+          {
+            printf 'PUBLIC_PATH=%s\n' "$public_path"
+            printf 'PHP_BINARY=%s\n' "$php_binary"
+            printf 'COMPOSER_BINARY=%s\n' "$composer_binary"
+            printf 'HEALTHCHECK_URL=https://%s/api/health\n' "$SSH_HOST"
+          } >> "$GITHUB_ENV"
+
+      - name: Bootstrap production paths and environment
+        shell: bash
+        timeout-minutes: 3
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          APP_PATH: ${{ secrets.APP_PATH }}
+          DB_DATABASE: ${{ secrets.DB_DATABASE }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          jq -n \
+            --arg app_url "https://$SSH_HOST" \
+            --arg database "$DB_DATABASE" \
+            --arg username "$DB_USERNAME" \
+            --arg password "$DB_PASSWORD" \
+            '{app_url: $app_url, database: $database, username: $username, password: $password}' \
+            > "$LOCAL_ENV_PAYLOAD"
+          chmod 600 "$LOCAL_ENV_PAYLOAD"
+
+          ssh_args=(
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o ConnectTimeout=15
+          )
+          scp \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "$LOCAL_ENV_PAYLOAD" "$SSH_USER@$SSH_HOST:$REMOTE_ENV_PAYLOAD"
+
+          ssh "${ssh_args[@]}" "$SSH_USER@$SSH_HOST" bash -s -- \
+            "$APP_PATH" "$PUBLIC_PATH" "$PHP_BINARY" "$REMOTE_ENV_PAYLOAD" <<'REMOTE'
+          set -Eeuo pipefail
+          umask 077
+          [[ $# -eq 4 ]] || exit 64
+          app_path=$1
+          public_path=$2
+          php_binary=$3
+          payload=$4
+
+          case "$payload" in
+            /tmp/blockbug-env-[0-9]*-[0-9]*.json) ;;
+            *) echo "Unexpected environment payload path." >&2; exit 1 ;;
+          esac
+          cleanup() { rm -f -- "$payload"; }
+          trap cleanup EXIT
+
+          validate_path() {
+            local label=$1 path=$2 resolved parent
+            [[ "$path" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+              echo "$label is not a safe absolute path." >&2
+              exit 1
+            }
+            resolved=$(realpath -m -- "$path")
+            [[ "$resolved" == "$path" ]] || {
+              echo "$label must be canonical." >&2
+              exit 1
+            }
+            parent=$(dirname -- "$resolved")
+            [[ "$resolved" != / && "$resolved" != "$HOME" && "$parent" != / ]] || {
+              echo "$label resolves to a protected broad location." >&2
+              exit 1
+            }
+          }
+
+          validate_path APP_PATH "$app_path"
+          validate_path PUBLIC_PATH "$public_path"
+          [[ "$public_path/" != "$app_path/"* && "$app_path/" != "$public_path/"* ]] || {
+            echo "APP_PATH and PUBLIC_PATH must not contain one another." >&2
+            exit 1
+          }
+          [[ -x "$php_binary" && -f "$payload" ]] || {
+            echo "PHP or the secure environment payload is unavailable." >&2
+            exit 1
+          }
+
+          mkdir -p -- "$app_path" "$public_path"
+          [[ -w "$app_path" && -w "$public_path" ]] || {
+            echo "Deployment paths are not writable by the SSH user." >&2
+            exit 1
+          }
+          touch "$app_path/.blockbug-app-root" "$public_path/.blockbug-public-root"
+
+          if [[ ! -s "$app_path/.env" ]]; then
+            environment_new="$app_path/.env.blockbug-new"
+            "$php_binary" /dev/stdin "$payload" "$environment_new" <<'PHP'
+          <?php
+          $data = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+          foreach (['app_url', 'database', 'username', 'password'] as $required) {
+              if (!isset($data[$required]) || !is_string($data[$required]) || $data[$required] === '') {
+                  throw new RuntimeException("Missing required environment value: {$required}");
+              }
+          }
+          if (!preg_match('/^https:\/\/[A-Za-z0-9.-]+$/', $data['app_url'])) {
+              throw new RuntimeException('APP_URL must be a simple HTTPS origin.');
+          }
+          $quote = static fn (string $value): string => '"'.strtr($value, [
+              '\\' => '\\\\', '"' => '\\"', '$' => '\\$', "\n" => '\\n', "\r" => '\\r',
+          ]).'"';
+          $values = [
+              'APP_NAME' => 'BlockBug',
+              'APP_ENV' => 'production',
+              'APP_KEY' => 'base64:'.base64_encode(random_bytes(32)),
+              'APP_DEBUG' => 'false',
+              'APP_URL' => $data['app_url'],
+              'FRONTEND_URL' => $data['app_url'],
+              'APP_MAINTENANCE_DRIVER' => 'file',
+              'LOG_CHANNEL' => 'stack',
+              'LOG_LEVEL' => 'warning',
+              'DB_CONNECTION' => 'mysql',
+              'DB_HOST' => '127.0.0.1',
+              'DB_PORT' => '3306',
+              'DB_DATABASE' => $data['database'],
+              'DB_USERNAME' => $data['username'],
+              'DB_PASSWORD' => $data['password'],
+              'SESSION_DRIVER' => 'file',
+              'CACHE_STORE' => 'file',
+              'QUEUE_CONNECTION' => 'sync',
+              'FILESYSTEM_DISK' => 'local',
+          ];
+          $lines = [];
+          foreach ($values as $name => $value) {
+              $lines[] = $name.'='.$quote($value);
+          }
+          if (file_put_contents($argv[2], implode(PHP_EOL, $lines).PHP_EOL, LOCK_EX) === false) {
+              throw new RuntimeException('Could not create the production environment file.');
+          }
+          chmod($argv[2], 0600);
+          PHP
+            mv -f -- "$environment_new" "$app_path/.env"
+          fi
+          chmod 600 "$app_path/.env"
+          REMOTE
+
+      - name: Preflight remote server
+        shell: bash
+        timeout-minutes: 3
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          APP_PATH: ${{ secrets.APP_PATH }}
+        run: |
+          set -Eeuo pipefail
+          ssh_args=(
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o ConnectTimeout=15
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=2
+          )
+          ssh "${ssh_args[@]}" "$SSH_USER@$SSH_HOST" bash -s -- \
+            "$APP_PATH" "$PUBLIC_PATH" "$PHP_BINARY" "$COMPOSER_BINARY" <<'REMOTE'
+          set -Eeuo pipefail
+          [[ $# -eq 4 ]] || exit 64
+          app_path=$1
+          public_path=$2
+          php_binary=$3
+          composer_binary=$4
+
+          for command_name in bash rsync sed awk grep find realpath; do
+            command -v "$command_name" >/dev/null || {
+              echo "Remote requirement missing: $command_name" >&2
+              exit 1
+            }
+          done
+
+          validate_directory() {
+            local label=$1 path=$2 resolved parent
+            [[ "$path" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+              echo "$label is not a safe absolute path." >&2
+              exit 1
+            }
+            resolved=$(realpath -m -- "$path")
+            [[ "$resolved" == "$path" ]] || {
+              echo "$label must already be canonical." >&2
+              exit 1
+            }
+            parent=$(dirname -- "$resolved")
+            [[ "$resolved" != / && "$resolved" != "$HOME" && "$parent" != / ]] || {
+              echo "$label resolves to a protected broad location." >&2
+              exit 1
+            }
+            [[ -d "$resolved" && -w "$resolved" ]] || {
+              echo "$label must exist and be writable by the SSH user." >&2
+              exit 1
+            }
+          }
+
+          validate_directory APP_PATH "$app_path"
+          validate_directory PUBLIC_PATH "$public_path"
+          [[ "$app_path" != "$public_path" ]] || {
+            echo "Deployment paths must be different." >&2
+            exit 1
+          }
+          [[ "$public_path/" != "$app_path/"* && "$app_path/" != "$public_path/"* ]] || {
+            echo "APP_PATH and PUBLIC_PATH must not contain one another." >&2
+            exit 1
+          }
+
+          [[ -f "$app_path/.blockbug-app-root" ]] || {
+            echo "APP_PATH is missing its .blockbug-app-root safety marker." >&2
+            exit 1
+          }
+          [[ -f "$public_path/.blockbug-public-root" ]] || {
+            echo "PUBLIC_PATH is missing its .blockbug-public-root safety marker." >&2
+            exit 1
+          }
+          [[ -f "$app_path/.env" ]] || {
+            echo "The server-managed APP_PATH/.env file is missing." >&2
+            exit 1
+          }
+          [[ "$php_binary" =~ ^/[A-Za-z0-9._/-]+$ && -x "$php_binary" ]] || {
+            echo "PHP_BINARY must identify an executable absolute path." >&2
+            exit 1
+          }
+          [[ "$composer_binary" =~ ^/[A-Za-z0-9._/-]+$ && -r "$composer_binary" ]] || {
+            echo "COMPOSER_BINARY must identify a readable absolute path." >&2
+            exit 1
+          }
+
+          "$php_binary" -r 'exit(version_compare(PHP_VERSION, "8.2.0", ">=") ? 0 : 1);' || {
+            echo "BlockBug requires PHP 8.2 or newer." >&2
+            exit 1
+          }
+          required_extensions=(
+            ctype dom fileinfo filter hash iconv json libxml mbstring openssl
+            pcre session tokenizer PDO pdo_mysql
+          )
+          for extension in "${required_extensions[@]}"; do
+            "$php_binary" -r 'exit(extension_loaded($argv[1]) ? 0 : 1);' "$extension" || {
+              echo "Required PHP extension is missing: $extension" >&2
+              exit 1
+            }
+          done
+          "$php_binary" "$composer_binary" --version >/dev/null
+          rsync --version >/dev/null
+          REMOTE
+
+      - name: Synchronize private Laravel application
+        shell: bash
+        timeout-minutes: 8
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          APP_PATH: ${{ secrets.APP_PATH }}
+        run: |
+          set -Eeuo pipefail
+          rsync -az --delete-delay --itemize-changes \
+            --exclude='/.blockbug-app-root' \
+            --exclude='/.git/' \
+            --exclude='/.github/' \
+            --exclude='/.env' \
+            --exclude='/.env.*' \
+            --exclude='/node_modules/' \
+            --exclude='/vendor/' \
+            --exclude='/public/' \
+            --exclude='/storage/' \
+            --exclude='/bootstrap/cache/*' \
+            --exclude='/tests/' \
+            --exclude='/phpunit.xml' \
+            --exclude='/.phpunit.result.cache' \
+            --exclude='/database/*.sqlite*' \
+            --exclude='/.idea/' \
+            --exclude='/.vscode/' \
+            --exclude='*.log' \
+            -e "ssh -p $SSH_PORT -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=15" \
+            laravel-api/ "$SSH_USER@$SSH_HOST:$APP_PATH/"
+
+      - name: Synchronize composed public document root
+        shell: bash
+        timeout-minutes: 8
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -Eeuo pipefail
+          test -f "$PUBLIC_STAGE/index.html"
+          test -f "$PUBLIC_STAGE/index.php"
+          test -f "$PUBLIC_STAGE/.htaccess"
+          rsync -az --delete-delay --itemize-changes \
+            --exclude='/.blockbug-public-root' \
+            --exclude='/.well-known/' \
+            --exclude='/cgi-bin/' \
+            --exclude='/uploads/' \
+            --exclude='/storage' \
+            --exclude='/.user.ini' \
+            -e "ssh -p $SSH_PORT -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=15" \
+            "$PUBLIC_STAGE/" "$SSH_USER@$SSH_HOST:$PUBLIC_PATH/"
+
+      - name: Upload deployment script
+        shell: bash
+        timeout-minutes: 2
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -Eeuo pipefail
+          scp \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            .github/scripts/deploy.sh "$SSH_USER@$SSH_HOST:$REMOTE_SCRIPT"
+
+      - name: Finalize Laravel deployment
+        shell: bash
+        timeout-minutes: 10
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          APP_PATH: ${{ secrets.APP_PATH }}
+        run: |
+          set -Eeuo pipefail
+          ssh_args=(
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o ConnectTimeout=15
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=2
+          )
+          ssh "${ssh_args[@]}" "$SSH_USER@$SSH_HOST" bash "$REMOTE_SCRIPT" \
+            "$APP_PATH" "$PUBLIC_PATH" "$PHP_BINARY" "$COMPOSER_BINARY"
+
+      - name: Check production health
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --location \
+            --retry 5 --retry-delay 3 --retry-all-errors \
+            --connect-timeout 10 --max-time 20 \
+            -- "$HEALTHCHECK_URL" >/dev/null
+
+      - name: Clean up deployment temporary files
+        if: always()
+        shell: bash
+        timeout-minutes: 2
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set +e
+          if [[ "${{ steps.ssh.outputs.ready }}" == true ]]; then
+            ssh -p "$SSH_PORT" \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -o ConnectTimeout=10 \
+              "$SSH_USER@$SSH_HOST" bash -s -- "$REMOTE_SCRIPT" "$REMOTE_ENV_PAYLOAD" <<'REMOTE'
+          temporary_script=$1
+          environment_payload=$2
+          case "$temporary_script" in
+            /tmp/blockbug-deploy-[0-9]*-[0-9]*.sh) rm -f -- "$temporary_script" ;;
+            *) echo "Refusing to remove unexpected temporary path." >&2; exit 1 ;;
+          esac
+          case "$environment_payload" in
+            /tmp/blockbug-env-[0-9]*-[0-9]*.json) rm -f -- "$environment_payload" ;;
+            *) echo "Refusing to remove unexpected environment payload path." >&2; exit 1 ;;
+          esac
+          REMOTE
+          fi
+
+          case "$PUBLIC_STAGE" in
+            "$RUNNER_TEMP"/blockbug-public-[0-9]*-[0-9]*) rm -rf -- "$PUBLIC_STAGE" ;;
+            *) echo "Refusing to remove unexpected runner path." >&2 ;;
+          esac
+          case "$LOCAL_ENV_PAYLOAD" in
+            "$RUNNER_TEMP"/blockbug-env-[0-9]*-[0-9]*.json) rm -f -- "$LOCAL_ENV_PAYLOAD" ;;
+            *) echo "Refusing to remove unexpected local environment payload path." >&2 ;;
+          esac
+          if [[ -n "${SSH_AGENT_PID:-}" ]]; then
+            ssh-agent -k >/dev/null 2>&1
+          fi
