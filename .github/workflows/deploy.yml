@@ -154,15 +154,22 @@ jobs:
 
           install -d -m 700 "$HOME/.ssh"
           known_hosts_new="$HOME/.ssh/known_hosts.blockbug-new"
-          : > "$known_hosts_new"
-          for attempt in 1 2 3; do
-            if ssh-keyscan -4 -T 15 -p "$SSH_PORT" "$SSH_HOST" >> "$known_hosts_new"; then
-              break
-            fi
-            echo "SSH host-key scan attempt $attempt failed; retrying." >&2
+          discovered_port=
+          candidate_ports=("$SSH_PORT" 22 2222 21098)
+          for candidate_port in "${candidate_ports[@]}"; do
+            [[ "$candidate_port" =~ ^[0-9]{1,5}$ ]] || continue
+            : > "$known_hosts_new"
+            for attempt in 1 2; do
+              ssh-keyscan -4 -T 8 -p "$candidate_port" "$SSH_HOST" >> "$known_hosts_new" || true
+              if [[ -s "$known_hosts_new" ]]; then
+                discovered_port=$candidate_port
+                break 2
+              fi
+              echo "SSH scan failed on a candidate port; retrying." >&2
+            done
           done
-          test -s "$known_hosts_new" || {
-            echo "::error::Could not obtain the SSH server host key after three IPv4 attempts. Verify SSH_HOST, SSH_PORT, and the cPanel SSH service/firewall."
+          [[ -n "$discovered_port" && -s "$known_hosts_new" ]] || {
+            echo "::error::Could not reach SSH over IPv4 on the configured or common cPanel ports. Verify SSH_HOST and enable external SSH access in cPanel/firewall."
             exit 1
           }
           mv -f -- "$known_hosts_new" "$HOME/.ssh/known_hosts"
@@ -170,14 +177,15 @@ jobs:
           ssh-keygen -l -f "$HOME/.ssh/known_hosts" >/dev/null
 
           host_lookup="$SSH_HOST"
-          if [[ "$SSH_PORT" != 22 ]]; then
-            host_lookup="[$SSH_HOST]:$SSH_PORT"
+          if [[ "$discovered_port" != 22 ]]; then
+            host_lookup="[$SSH_HOST]:$discovered_port"
           fi
           ssh-keygen -F "$host_lookup" -f "$HOME/.ssh/known_hosts" >/dev/null || {
             echo "::error::The scanned host-key file has no entry for the configured host and port."
             exit 1
           }
           echo "::warning::SSH host keys are trusted on first use because SSH_KNOWN_HOSTS is not configured."
+          printf 'port=%s\n' "$discovered_port" >> "$GITHUB_OUTPUT"
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Discover cPanel paths and PHP toolchain
@@ -185,7 +193,7 @@ jobs:
         timeout-minutes: 2
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
           SSH_USER: ${{ secrets.SSH_USER }}
         run: |
           set -Eeuo pipefail
@@ -285,7 +293,7 @@ jobs:
         timeout-minutes: 3
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
           SSH_USER: ${{ secrets.SSH_USER }}
           APP_PATH: ${{ secrets.APP_PATH }}
           DB_DATABASE: ${{ secrets.DB_DATABASE }}
@@ -427,7 +435,7 @@ jobs:
         timeout-minutes: 3
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
           SSH_USER: ${{ secrets.SSH_USER }}
           APP_PATH: ${{ secrets.APP_PATH }}
         run: |
@@ -534,7 +542,7 @@ jobs:
         timeout-minutes: 8
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
           SSH_USER: ${{ secrets.SSH_USER }}
           APP_PATH: ${{ secrets.APP_PATH }}
         run: |
@@ -565,7 +573,7 @@ jobs:
         timeout-minutes: 8
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
           SSH_USER: ${{ secrets.SSH_USER }}
         run: |
           set -Eeuo pipefail
@@ -587,7 +595,7 @@ jobs:
         timeout-minutes: 2
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
           SSH_USER: ${{ secrets.SSH_USER }}
         run: |
           set -Eeuo pipefail
@@ -604,7 +612,7 @@ jobs:
         timeout-minutes: 10
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
           SSH_USER: ${{ secrets.SSH_USER }}
           APP_PATH: ${{ secrets.APP_PATH }}
         run: |
@@ -637,7 +645,7 @@ jobs:
         timeout-minutes: 2
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
           SSH_USER: ${{ secrets.SSH_USER }}
         run: |
           set +e
