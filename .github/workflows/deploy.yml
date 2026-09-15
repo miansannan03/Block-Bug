@@ -634,6 +634,21 @@ jobs:
         timeout-minutes: 3
         run: |
           set -Eeuo pipefail
+          frontend_url="${HEALTHCHECK_URL%/api/health}/"
+          frontend_response=$(mktemp)
+          trap 'rm -f -- "$frontend_response"' EXIT
+
+          curl --fail --silent --show-error --location \
+            --retry 5 --retry-delay 3 --retry-all-errors \
+            --connect-timeout 10 --max-time 20 \
+            --output "$frontend_response" \
+            -- "$frontend_url"
+          grep -Eiq '<div[[:space:]][^>]*id="root"' \
+            "$frontend_response" || {
+              echo "::error::Production root did not return the BlockBug frontend shell."
+              exit 1
+            }
+
           curl --fail --silent --show-error --location \
             --retry 5 --retry-delay 3 --retry-all-errors \
             --connect-timeout 10 --max-time 20 \

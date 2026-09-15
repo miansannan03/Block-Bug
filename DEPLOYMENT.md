@@ -155,7 +155,8 @@ conflicts with cPanel, Cloudflare, or another reverse proxy.
    `APP_PATH/storage/app/public`.
 7. Uses Laravel maintenance mode on upgrades, runs Composer, clears stale
    framework caches, and runs `php artisan migrate --force`.
-8. Calls `https://SSH_HOST/api/health`, which checks Laravel and its database.
+8. Checks the production root for the React application shell, then calls
+   `https://SSH_HOST/api/health`, which checks Laravel and its database.
 
 The remote Composer command is:
 
