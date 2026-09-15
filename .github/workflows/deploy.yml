@@ -244,6 +244,7 @@ jobs:
             /usr/local/bin/composer
             /opt/cpanel/composer/bin/composer
             "$HOME/composer.phar"
+            "$HOME/.local/bin/composer.phar"
           )
           composer_binary=
           for candidate in "${composer_candidates[@]}"; do
@@ -253,10 +254,9 @@ jobs:
               break
             fi
           done
-          [[ -n "$composer_binary" ]] || {
-            echo "No Composer executable or PHAR compatible with the selected PHP was found." >&2
-            exit 1
-          }
+          if [[ -z "$composer_binary" ]]; then
+            composer_binary=$(realpath -m -- "$HOME/.local/bin/composer.phar")
+          fi
 
           printf 'PUBLIC_PATH=%s\nPHP_BINARY=%s\nCOMPOSER_BINARY=%s\n' \
             "$public_path" "$php_binary" "$composer_binary"
@@ -287,6 +287,67 @@ jobs:
             printf 'COMPOSER_BINARY=%s\n' "$composer_binary"
             printf 'HEALTHCHECK_URL=https://%s/api/health\n' "$SSH_HOST"
           } >> "$GITHUB_ENV"
+
+      - name: Provision Composer when absent
+        shell: bash
+        timeout-minutes: 3
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -Eeuo pipefail
+          ssh_args=(
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o ConnectTimeout=15
+          )
+
+          ssh "${ssh_args[@]}" "$SSH_USER@$SSH_HOST" bash -s -- \
+            "$PHP_BINARY" "$COMPOSER_BINARY" <<'REMOTE'
+          set -Eeuo pipefail
+          php_binary=$1
+          composer_binary=$2
+
+          if [[ -r "$composer_binary" ]] && \
+            "$php_binary" "$composer_binary" --version >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          expected_path="$HOME/.local/bin/composer.phar"
+          [[ "$composer_binary" == "$expected_path" ]] || {
+            echo "Refusing to provision Composer at an unexpected path." >&2
+            exit 1
+          }
+
+          install_dir=${composer_binary%/*}
+          installer=$(mktemp "$HOME/.composer-setup.XXXXXX.php")
+          cleanup() {
+            rm -f -- "$installer"
+          }
+          trap cleanup EXIT
+
+          expected_checksum=$("$php_binary" -r \
+            'copy("https://composer.github.io/installer.sig", "php://stdout") or exit(1);')
+          "$php_binary" -r \
+            'copy("https://getcomposer.org/installer", $argv[1]) or exit(1);' \
+            "$installer"
+          actual_checksum=$("$php_binary" -r \
+            'echo hash_file("sha384", $argv[1]);' "$installer")
+          [[ -n "$expected_checksum" && "$expected_checksum" == "$actual_checksum" ]] || {
+            echo "Composer installer checksum verification failed." >&2
+            exit 1
+          }
+
+          mkdir -p -- "$install_dir"
+          chmod 0700 -- "$install_dir"
+          "$php_binary" "$installer" --quiet --2 \
+            --install-dir="$install_dir" --filename="${composer_binary##*/}"
+          chmod 0700 -- "$composer_binary"
+          "$php_binary" "$composer_binary" --version
+          REMOTE
 
       - name: Bootstrap production paths and environment
         shell: bash

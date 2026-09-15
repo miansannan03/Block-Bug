@@ -145,9 +145,11 @@ conflicts with cPanel, Cloudflare, or another reverse proxy.
 2. Runs `npm run lint`, then `npm run build` with `VITE_API_URL=/api`. The
    expected output is `dist/index.html` plus files under `dist/assets/`.
 3. Combines `dist/` with `laravel-api/public/` in a runner-only staging folder.
-4. Scans the SSH host key, discovers `$HOME/public_html`, PHP, and Composer,
-   bootstraps the production paths and `.env` when missing, then preflights
-   safety markers, write access, extensions, and configuration.
+4. Scans the SSH host key and discovers `$HOME/public_html` and PHP. It uses an
+   existing compatible Composer installation or securely provisions Composer 2
+   under `$HOME/.local/bin` after verifying the official installer checksum.
+   It then bootstraps the production paths and `.env` when missing and
+   preflights safety markers, write access, extensions, and configuration.
 5. Synchronizes private Laravel code to `APP_PATH` and the composed document
    root to `PUBLIC_PATH`.
 6. Patches `PUBLIC_PATH/index.php`, creates runtime directories, links
