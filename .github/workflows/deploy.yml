@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 30
     environment: production
     env:
+      SITE_HOST: blockbug.pk
       PUBLIC_STAGE: /tmp/blockbug-public-${{ github.run_id }}-${{ github.run_attempt }}
       LOCAL_ENV_PAYLOAD: /tmp/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
       LOCAL_APP_ARCHIVE: /tmp/blockbug-app-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
@@ -66,6 +67,10 @@ jobs:
           }
           [[ "$SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || {
             echo "::error::SSH_HOST contains unsupported characters."
+            exit 1
+          }
+          [[ "$SITE_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || {
+            echo "::error::SITE_HOST contains unsupported characters."
             exit 1
           }
           [[ "$SSH_USER" =~ ^[A-Za-z0-9._-]+$ ]] || {
@@ -289,7 +294,7 @@ jobs:
             printf 'PUBLIC_PATH=%s\n' "$public_path"
             printf 'PHP_BINARY=%s\n' "$php_binary"
             printf 'COMPOSER_BINARY=%s\n' "$composer_binary"
-            printf 'HEALTHCHECK_URL=https://%s/api/health\n' "$SSH_HOST"
+            printf 'HEALTHCHECK_URL=https://%s/api/health\n' "$SITE_HOST"
           } >> "$GITHUB_ENV"
 
       - name: Provision Composer when absent
@@ -368,7 +373,7 @@ jobs:
           set -Eeuo pipefail
           umask 077
           jq -n \
-            --arg app_url "https://$SSH_HOST" \
+            --arg app_url "https://$SITE_HOST" \
             --arg database "$DB_DATABASE" \
             --arg username "$DB_USERNAME" \
             --arg password "$DB_PASSWORD" \

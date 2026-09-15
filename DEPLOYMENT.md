@@ -24,7 +24,7 @@ recommended):
 | Secret | Required value |
 | --- | --- |
 | `SSH_PRIVATE_KEY` | Full unencrypted OpenSSH private key for a dedicated deployment user. |
-| `SSH_HOST` | SSH hostname without a scheme or port. It is also used as the production HTTPS hostname for the health check. |
+| `SSH_HOST` | SSH hostname without a scheme or port (`s11.hosterpk.com` for this account). |
 | `SSH_PORT` | SSH port, normally `22`. |
 | `SSH_USER` | SSH deployment username. |
 | `APP_PATH` | Canonical absolute private Laravel path, for example `/home/account/apps/blockbug`. Do not use a home directory or document root. |
@@ -34,8 +34,9 @@ recommended):
 
 No secrets are required for the public path, PHP, Composer, frontend API URL,
 or health URL. The workflow uses the SSH account's `$HOME/public_html`, selects
-the first compatible PHP 8.2+ and Composer installation, builds the frontend
-with `/api`, and checks `https://SSH_HOST/api/health`.
+a compatible PHP 8.2+ executable, discovers or provisions Composer, builds the
+frontend with `/api`, and checks `https://blockbug.pk/api/health`. The public
+site hostname is the non-secret `SITE_HOST` workflow constant.
 
 Because `SSH_KNOWN_HOSTS` was intentionally removed, the workflow obtains the
 server key with `ssh-keyscan` and then uses strict checking for the connection.
@@ -159,8 +160,8 @@ conflicts with cPanel, Cloudflare, or another reverse proxy.
    `APP_PATH/storage/app/public`.
 7. Uses Laravel maintenance mode on upgrades, runs Composer, clears stale
    framework caches, and runs `php artisan migrate --force`.
-8. Checks the production root for the React application shell, then calls
-   `https://SSH_HOST/api/health`, which checks Laravel and its database.
+8. Checks `https://blockbug.pk/` for the React application shell, then calls
+   `https://blockbug.pk/api/health`, which checks Laravel and its database.
 
 The remote Composer command is:
 
