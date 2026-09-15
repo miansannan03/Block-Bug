@@ -4,13 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/lib/auth-context'
 import { api, type BugStats, type DashboardData, type ReportData } from '@/lib/api'
-import { getAppInitial, useSystemSettings } from '@/lib/system-settings-context'
+import { useSystemSettings } from '@/lib/system-settings-context'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { BlockBugLogo } from '@/components/blockbug-logo'
 import {
   ArrowRight,
-  BarChart3,
   Building2,
   CheckCircle2,
   ChevronRight,
@@ -21,7 +21,6 @@ import {
   Layers3,
   ShieldCheck,
   Sparkles,
-  Users,
   WalletCards,
 } from 'lucide-react'
 
@@ -115,18 +114,12 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/70 bg-background/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 shadow-sm">
-              <span className="text-lg font-bold text-primary">{getAppInitial(settings.app_name)}</span>
-            </div>
-            <div>
-              <p className="text-base font-semibold text-foreground">{settings.app_name}</p>
-              <p className="text-xs text-muted-foreground">Organization-based bug tracking workspace</p>
-            </div>
-          </div>
+        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-5 sm:px-8">
+          <Link to="/" className="flex shrink-0 items-center" aria-label={`${settings.app_name} home`}>
+            <BlockBugLogo appName={settings.app_name} className="h-10 sm:h-14 md:h-16" />
+          </Link>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             {isAuthenticated ? (
               <Link to="/dashboard">
                 <Button className="gap-2 rounded-xl px-5">
@@ -137,14 +130,18 @@ export default function Home() {
             ) : (
               <>
                 <Link to="/login">
-                  <Button variant="ghost" className="font-medium">
+                  <Button
+                    variant="ghost"
+                    className={settings.allow_signup ? 'hidden font-medium md:inline-flex' : 'font-medium'}
+                  >
                     Organization Login
                   </Button>
                 </Link>
                 {settings.allow_signup && (
                   <Link to="/signup">
-                    <Button className="gap-2 rounded-xl px-5">
-                      Sign Up Organization
+                    <Button className="gap-2 rounded-xl px-3 sm:px-5">
+                      <span className="sm:hidden">Sign Up</span>
+                      <span className="hidden sm:inline">Sign Up Organization</span>
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   </Link>
@@ -157,7 +154,7 @@ export default function Home() {
 
       <main>
         <section className="border-b border-border/60 bg-muted/10">
-          <div className="mx-auto grid max-w-7xl gap-10 px-5 py-16 sm:px-8 lg:grid-cols-[0.94fr_1.06fr] lg:items-center lg:py-20">
+          <div className="mx-auto grid max-w-7xl gap-8 px-5 py-10 sm:px-8 sm:py-12 lg:grid-cols-[0.94fr_1.06fr] lg:items-start">
             <div>
               <Badge variant="outline" className="rounded-full border-primary/20 bg-background/80 px-3 py-1 text-primary">
                 Organization-first issue management
@@ -289,30 +286,12 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="mt-5 rounded-2xl border border-border/70 bg-muted/15 p-4">
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {[
-                      { icon: Building2, title: 'Organization login', body: 'Workspace first, member second.' },
-                      { icon: Users, title: 'Role routing', body: 'Admin, manager, developer, tester.' },
-                      { icon: BarChart3, title: 'Reports', body: 'Projects, bugs, sprints, verification.' },
-                    ].map((item) => {
-                      const Icon = item.icon
-                      return (
-                        <div key={item.title} className="rounded-xl border border-border/60 bg-background p-4">
-                          <Icon className="h-5 w-5 text-primary" />
-                          <p className="mt-3 text-sm font-semibold text-foreground">{item.title}</p>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.body}</p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-5 py-14 sm:px-8">
+        <section className="mx-auto max-w-7xl px-5 py-10 sm:px-8 sm:py-12">
           <div className="grid gap-4 md:grid-cols-3">
             {productHighlights.map((item) => {
               const Icon = item.icon
@@ -330,45 +309,45 @@ export default function Home() {
         </section>
 
         <section className="border-y border-border/60 bg-muted/10">
-          <div className="mx-auto max-w-7xl px-5 py-16 sm:px-8">
-            <div className="grid gap-8 lg:grid-cols-[0.72fr_1.28fr] lg:items-end">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Subscription Packages</p>
-                <h2 className="mt-3 text-4xl font-semibold tracking-tight text-foreground">
-                  Choose the workspace shape that fits your team.
-                </h2>
-                <p className="mt-4 text-base leading-7 text-muted-foreground">
-                  Start lean, grow into sprint planning and verification structure, and keep the same organization-first workflow.
-                </p>
-              </div>
+          <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8 sm:py-12">
+            <div className="max-w-3xl">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Subscription Packages</p>
+              <h2 className="mt-3 text-4xl font-semibold tracking-tight text-foreground">
+                Choose the workspace shape that fits your team.
+              </h2>
+              <p className="mt-4 text-base leading-7 text-muted-foreground">
+                Start lean, grow into sprint planning and verification structure, and keep the same organization-first workflow.
+              </p>
+            </div>
 
-              <div className="grid gap-4 lg:grid-cols-3">
-                {packageTiers.map((tier) => (
-                  <Card key={tier.name} className={`rounded-2xl p-5 transition hover:-translate-y-1 hover:shadow-lg ${tier.accent}`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xl font-semibold text-foreground">{tier.name}</p>
-                      <Badge variant="outline" className="rounded-full bg-background/80 text-[11px]">
-                        {tier.badge}
-                      </Badge>
-                    </div>
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
+              {packageTiers.map((tier) => (
+                <Card key={tier.name} className={`flex h-full flex-col rounded-2xl p-5 transition hover:-translate-y-1 hover:shadow-lg ${tier.accent}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xl font-semibold text-foreground">{tier.name}</p>
+                    <Badge variant="outline" className="rounded-full bg-background/80 text-[11px]">
+                      {tier.badge}
+                    </Badge>
+                  </div>
 
-                    <p className="mt-3 min-h-16 text-sm leading-6 text-muted-foreground">{tier.description}</p>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{tier.description}</p>
 
-                    <div className="mt-5 flex items-end gap-1">
-                      <span className="text-4xl font-semibold text-foreground">{tier.price}</span>
-                      <span className="pb-1 text-sm text-muted-foreground">{tier.cadence}</span>
-                    </div>
+                  <div className="mt-5 flex items-end gap-1">
+                    <span className="text-4xl font-semibold text-foreground">{tier.price}</span>
+                    <span className="pb-1 text-sm text-muted-foreground">{tier.cadence}</span>
+                  </div>
 
-                    <div className="mt-5 space-y-3">
-                      {tier.features.map((feature) => (
-                        <div key={feature} className="flex items-start gap-3">
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                          <p className="text-sm text-foreground">{feature}</p>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="mt-5 space-y-3">
+                    {tier.features.map((feature) => (
+                      <div key={feature} className="flex items-start gap-3">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                        <p className="text-sm text-foreground">{feature}</p>
+                      </div>
+                    ))}
+                  </div>
 
-                    <div className="mt-7 rounded-xl border border-border/70 bg-background/70 px-4 py-3">
+                  <div className="mt-auto pt-7">
+                    <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                         Best For
                       </p>
@@ -380,67 +359,65 @@ export default function Home() {
                             : 'Organizations needing stronger audit visibility'}
                       </p>
                     </div>
-                  </Card>
-                ))}
-              </div>
+                  </div>
+                </Card>
+              ))}
             </div>
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8">
-          <div className="rounded-3xl border border-border/70 bg-card p-7 shadow-sm">
-            <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Operational Flow</p>
-                <h3 className="mt-3 text-3xl font-semibold text-foreground">From bug report to verified closure.</h3>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                  BlockBug keeps each handoff visible: managers route the issue, developers move it through the fix,
-                  testers confirm the outcome, and the audit layer records the important moments.
-                </p>
-              </div>
+        <section className="mx-auto max-w-7xl px-5 py-10 sm:px-8 sm:py-12">
+          <div className="rounded-3xl border border-border/70 bg-card p-5 shadow-sm sm:p-7">
+            <div className="max-w-3xl">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Operational Flow</p>
+              <h3 className="mt-3 text-3xl font-semibold text-foreground">From bug report to verified closure.</h3>
+              <p className="mt-4 text-base leading-7 text-muted-foreground">
+                BlockBug keeps each handoff visible: managers route the issue, developers move it through the fix,
+                testers confirm the outcome, and the audit layer records the important moments.
+              </p>
+            </div>
 
-              <div className="grid gap-3">
-                {[
-                  {
-                    icon: Building2,
-                    title: 'Workspace boundary',
-                    body: 'Organization access keeps every team, project, sprint, and member inside the right company space.',
-                  },
-                  {
-                    icon: GitBranch,
-                    title: 'Sprint movement',
-                    body: 'Open work can be planned into a sprint, started by the assigned developer, and carried over when needed.',
-                  },
-                  {
-                    icon: FileCheck2,
-                    title: 'Tester decision',
-                    body: 'Resolved bugs move to verification, where the tester can close the fix or return it to progress.',
-                  },
-                  {
-                    icon: ShieldCheck,
-                    title: 'Proof trail',
-                    body: 'Lifecycle events can be connected to blockchain proof records without changing the user workflow.',
-                  },
-                ].map((item, index) => {
-                  const Icon = item.icon
-                  return (
-                    <div key={item.title} className="flex gap-4 rounded-2xl border border-border/70 bg-background/70 p-4">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                        <Icon className="h-5 w-5 text-primary" />
-                      </div>
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline" className="rounded-full bg-card text-[11px]">
-                            Step {index + 1}
-                          </Badge>
-                          <p className="font-semibold text-foreground">{item.title}</p>
-                        </div>
-                        <p className="mt-1 text-sm leading-6 text-muted-foreground">{item.body}</p>
-                      </div>
+            <div className="mt-8 grid gap-3 md:grid-cols-2">
+              {[
+                {
+                  icon: Building2,
+                  title: 'Workspace boundary',
+                  body: 'Organization access keeps every team, project, sprint, and member inside the right company space.',
+                },
+                {
+                  icon: GitBranch,
+                  title: 'Sprint movement',
+                  body: 'Open work can be planned into a sprint, started by the assigned developer, and carried over when needed.',
+                },
+                {
+                  icon: FileCheck2,
+                  title: 'Tester decision',
+                  body: 'Resolved bugs move to verification, where the tester can close the fix or return it to progress.',
+                },
+                {
+                  icon: ShieldCheck,
+                  title: 'Proof trail',
+                  body: 'Lifecycle events can be connected to blockchain proof records without changing the user workflow.',
+                },
+              ].map((item, index) => {
+                const Icon = item.icon
+                return (
+                  <div key={item.title} className="flex h-full gap-4 rounded-2xl border border-border/70 bg-background/70 p-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                      <Icon className="h-5 w-5 text-primary" />
                     </div>
-                  )
-                })}
-              </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="rounded-full bg-card text-[11px]">
+                          Step {index + 1}
+                        </Badge>
+                        <p className="font-semibold text-foreground">{item.title}</p>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.body}</p>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         </section>
