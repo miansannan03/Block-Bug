@@ -171,12 +171,15 @@ The remote Composer command is:
 ```
 
 No seeder runs. `DatabaseSeeder` deletes and recreates demo organization data,
-so it is not production-safe. Config and route caches remain disabled because
-shared-hosting CLI and web PHP configurations can differ. The deployment clears
-config, route, view, event, and compiled caches instead. Before migration it
-also verifies that the server environment is production, debug mode is off, an
-application key exists, and the documented sync/file queue, cache, and session
-drivers are active.
+so it is not production-safe. A production-only data migration creates the
+initial organization and one user for each role exactly once; Laravel's
+`migrations` table prevents it from running on subsequent deployments, and its
+rollback is intentionally non-destructive. Config and route caches remain
+disabled because shared-hosting CLI and web PHP configurations can differ. The
+deployment clears config, route, view, event, and compiled caches instead.
+Before migration it also verifies that the server environment is production,
+debug mode is off, an application key exists, and the documented sync/file
+queue, cache, and session drivers are active.
 
 ## Synchronization and persistent data
 
