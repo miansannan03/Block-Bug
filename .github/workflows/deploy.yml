@@ -154,9 +154,15 @@ jobs:
 
           install -d -m 700 "$HOME/.ssh"
           known_hosts_new="$HOME/.ssh/known_hosts.blockbug-new"
-          ssh-keyscan -T 10 -p "$SSH_PORT" "$SSH_HOST" > "$known_hosts_new" 2>/dev/null
+          : > "$known_hosts_new"
+          for attempt in 1 2 3; do
+            if ssh-keyscan -4 -T 15 -p "$SSH_PORT" "$SSH_HOST" >> "$known_hosts_new"; then
+              break
+            fi
+            echo "SSH host-key scan attempt $attempt failed; retrying." >&2
+          done
           test -s "$known_hosts_new" || {
-            echo "::error::Could not obtain the SSH server host key."
+            echo "::error::Could not obtain the SSH server host key after three IPv4 attempts. Verify SSH_HOST, SSH_PORT, and the cPanel SSH service/firewall."
             exit 1
           }
           mv -f -- "$known_hosts_new" "$HOME/.ssh/known_hosts"
