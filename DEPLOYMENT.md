@@ -118,7 +118,8 @@ to those runtime directories, not to the whole application.
 
 Install and enable:
 
-- Bash, rsync, sed, awk, grep, find, realpath, and Composer
+- Bash, tar, cp, rm, mktemp, sed, awk, grep, find, and realpath. Composer is
+  discovered or provisioned automatically.
 - PHP 8.2 or newer
 - PHP extensions `ctype`, `dom`, `fileinfo`, `filter`, `hash`, `iconv`, `json`,
   `libxml`, `mbstring`, `openssl`, `pcre`, `session`, `tokenizer`, `PDO`, and
@@ -150,8 +151,9 @@ conflicts with cPanel, Cloudflare, or another reverse proxy.
    under `$HOME/.local/bin` after verifying the official installer checksum.
    It then bootstraps the production paths and `.env` when missing and
    preflights safety markers, write access, extensions, and configuration.
-5. Synchronizes private Laravel code to `APP_PATH` and the composed document
-   root to `PUBLIC_PATH`.
+5. Transfers validated compressed archives and synchronizes private Laravel
+   code to `APP_PATH` and the composed document root to `PUBLIC_PATH`, without
+   requiring `rsync` on the shared cPanel account.
 6. Patches `PUBLIC_PATH/index.php`, creates runtime directories, links
    `APP_PATH/public` to `PUBLIC_PATH`, and links `PUBLIC_PATH/storage` to
    `APP_PATH/storage/app/public`.
@@ -177,17 +179,18 @@ drivers are active.
 
 ## Synchronization and persistent data
 
-Private synchronization uses `--delete-delay`, but excludes `.env*`, `vendor/`,
-`node_modules/`, `public/`, all of `storage/`, `bootstrap/cache/*`, test files,
-SQLite files, logs, Git/GitHub metadata, editor metadata, and the safety marker.
-Consequently the production `.env`, runtime state, logs, sessions, and stored
-files cannot be deleted by rsync. Composer owns `vendor/` on the server.
+Private synchronization validates and extracts a runner-built archive, removes
+obsolete application files, and excludes `.env*`, `vendor/`, `node_modules/`,
+`public/`, all of `storage/`, `bootstrap/cache/`, test files, SQLite files,
+logs, Git/GitHub metadata, editor metadata, and the safety marker. Consequently
+the production `.env`, runtime state, logs, sessions, and stored files are
+preserved. Composer owns `vendor/` on the server.
 
-Public synchronization also uses `--delete-delay` so obsolete hashed frontend
-assets are removed. It protects `.blockbug-public-root`, `.well-known/`,
-`cgi-bin/`, `uploads/`, the `storage` symlink, and the server-managed `.user.ini`.
-Bug attachments remain in `PUBLIC_PATH/uploads/bugs`; include that directory and
-`APP_PATH/storage/` in server backups.
+Public synchronization likewise removes obsolete hashed frontend assets. It
+protects `.blockbug-public-root`, `.well-known/`, `cgi-bin/`, `uploads/`, the
+`storage` symlink, and the server-managed `.user.ini`. Bug attachments remain
+in `PUBLIC_PATH/uploads/bugs`; include that directory and `APP_PATH/storage/`
+in server backups.
 
 If this replaces a live installation of the retired standalone `backend/`, copy
 its production `uploads/bugs` directory into `PUBLIC_PATH/uploads/bugs` before
@@ -207,8 +210,8 @@ scheduling is added later, configure this only after review:
 
 This is an in-place, non-atomic shared-hosting deployment with no automated
 rollback. Maintenance mode covers Composer, cache clearing, and migrations on
-subsequent deployments, but the two rsync operations happen before maintenance
-mode begins. Back up the database and persistent upload/storage directories,
+subsequent deployments, but the two archive synchronizations happen before
+maintenance mode begins. Back up the database and persistent upload/storage directories,
 and retain a known-good Git ref for a manual code rollback. Database migrations
 may require a separate forward-fix because Laravel migrations can be
 irreversible; this project's current migration deliberately has a non-

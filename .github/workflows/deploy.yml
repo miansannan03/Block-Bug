@@ -19,8 +19,12 @@ jobs:
     env:
       PUBLIC_STAGE: /tmp/blockbug-public-${{ github.run_id }}-${{ github.run_attempt }}
       LOCAL_ENV_PAYLOAD: /tmp/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
+      LOCAL_APP_ARCHIVE: /tmp/blockbug-app-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
+      LOCAL_PUBLIC_ARCHIVE: /tmp/blockbug-web-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
       REMOTE_SCRIPT: /tmp/blockbug-deploy-${{ github.run_id }}-${{ github.run_attempt }}.sh
       REMOTE_ENV_PAYLOAD: /tmp/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
+      REMOTE_APP_ARCHIVE: /tmp/blockbug-app-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
+      REMOTE_PUBLIC_ARCHIVE: /tmp/blockbug-web-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
 
     steps:
       - name: Check out selected ref
@@ -519,7 +523,7 @@ jobs:
           php_binary=$3
           composer_binary=$4
 
-          for command_name in bash rsync sed awk grep find realpath; do
+          for command_name in bash tar cp rm mktemp sed awk grep find realpath; do
             command -v "$command_name" >/dev/null || {
               echo "Remote requirement missing: $command_name" >&2
               exit 1
@@ -595,7 +599,7 @@ jobs:
             }
           done
           "$php_binary" "$composer_binary" --version >/dev/null
-          rsync --version >/dev/null
+          tar --version >/dev/null
           REMOTE
 
       - name: Synchronize private Laravel application
@@ -608,26 +612,75 @@ jobs:
           APP_PATH: ${{ secrets.APP_PATH }}
         run: |
           set -Eeuo pipefail
-          rsync -az --delete-delay --itemize-changes \
-            --exclude='/.blockbug-app-root' \
-            --exclude='/.git/' \
-            --exclude='/.github/' \
-            --exclude='/.env' \
-            --exclude='/.env.*' \
-            --exclude='/node_modules/' \
-            --exclude='/vendor/' \
-            --exclude='/public/' \
-            --exclude='/storage/' \
-            --exclude='/bootstrap/cache/*' \
-            --exclude='/tests/' \
-            --exclude='/phpunit.xml' \
-            --exclude='/.phpunit.result.cache' \
-            --exclude='/database/*.sqlite*' \
-            --exclude='/.idea/' \
-            --exclude='/.vscode/' \
+          tar -C laravel-api -czf "$LOCAL_APP_ARCHIVE" \
+            --exclude='./.git' \
+            --exclude='./.github' \
+            --exclude='./.env' \
+            --exclude='./.env.*' \
+            --exclude='./node_modules' \
+            --exclude='./vendor' \
+            --exclude='./public' \
+            --exclude='./storage' \
+            --exclude='./bootstrap/cache' \
+            --exclude='./tests' \
+            --exclude='./phpunit.xml' \
+            --exclude='./.phpunit.result.cache' \
+            --exclude='./database/*.sqlite*' \
+            --exclude='./.idea' \
+            --exclude='./.vscode' \
             --exclude='*.log' \
-            -e "ssh -p $SSH_PORT -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=15" \
-            laravel-api/ "$SSH_USER@$SSH_HOST:$APP_PATH/"
+            .
+
+          scp -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "$LOCAL_APP_ARCHIVE" "$SSH_USER@$SSH_HOST:$REMOTE_APP_ARCHIVE"
+
+          ssh -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" bash -s -- \
+            "$APP_PATH" "$REMOTE_APP_ARCHIVE" <<'REMOTE'
+          set -Eeuo pipefail
+          app_path=$1
+          archive=$2
+          [[ "$app_path" =~ ^/[A-Za-z0-9._/-]+$ && -d "$app_path" ]] || exit 1
+          [[ -f "$app_path/.blockbug-app-root" ]] || exit 1
+          case "$archive" in
+            /tmp/blockbug-app-[0-9]*-[0-9]*.tar.gz) ;;
+            *) echo "Unexpected application archive path." >&2; exit 1 ;;
+          esac
+
+          stage=$(mktemp -d "$HOME/.blockbug-app-stage.XXXXXX")
+          cleanup() {
+            rm -rf -- "$stage"
+            rm -f -- "$archive"
+          }
+          trap cleanup EXIT
+          tar -xzf "$archive" -C "$stage" --no-same-owner
+          [[ -f "$stage/artisan" && -f "$stage/composer.lock" ]] || {
+            echo "Application archive validation failed." >&2
+            exit 1
+          }
+
+          shopt -s dotglob nullglob
+          for entry in "$app_path"/*; do
+            name=${entry##*/}
+            case "$name" in
+              .blockbug-app-root|.env|.env.*|storage|vendor|public|bootstrap) ;;
+              *) rm -rf -- "$entry" ;;
+            esac
+          done
+          if [[ -d "$app_path/bootstrap" ]]; then
+            find "$app_path/bootstrap" -mindepth 1 -maxdepth 1 \
+              ! -name cache -exec rm -rf -- {} +
+          fi
+          cp -a -- "$stage/." "$app_path/"
+          REMOTE
 
       - name: Synchronize composed public document root
         shell: bash
@@ -641,15 +694,53 @@ jobs:
           test -f "$PUBLIC_STAGE/index.html"
           test -f "$PUBLIC_STAGE/index.php"
           test -f "$PUBLIC_STAGE/.htaccess"
-          rsync -az --delete-delay --itemize-changes \
-            --exclude='/.blockbug-public-root' \
-            --exclude='/.well-known/' \
-            --exclude='/cgi-bin/' \
-            --exclude='/uploads/' \
-            --exclude='/storage' \
-            --exclude='/.user.ini' \
-            -e "ssh -p $SSH_PORT -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=15" \
-            "$PUBLIC_STAGE/" "$SSH_USER@$SSH_HOST:$PUBLIC_PATH/"
+          tar -C "$PUBLIC_STAGE" -czf "$LOCAL_PUBLIC_ARCHIVE" .
+          scp -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "$LOCAL_PUBLIC_ARCHIVE" "$SSH_USER@$SSH_HOST:$REMOTE_PUBLIC_ARCHIVE"
+
+          ssh -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" bash -s -- \
+            "$PUBLIC_PATH" "$REMOTE_PUBLIC_ARCHIVE" <<'REMOTE'
+          set -Eeuo pipefail
+          public_path=$1
+          archive=$2
+          [[ "$public_path" =~ ^/[A-Za-z0-9._/-]+$ && -d "$public_path" ]] || exit 1
+          [[ -f "$public_path/.blockbug-public-root" ]] || exit 1
+          case "$archive" in
+            /tmp/blockbug-web-[0-9]*-[0-9]*.tar.gz) ;;
+            *) echo "Unexpected public archive path." >&2; exit 1 ;;
+          esac
+
+          stage=$(mktemp -d "$HOME/.blockbug-web-stage.XXXXXX")
+          cleanup() {
+            rm -rf -- "$stage"
+            rm -f -- "$archive"
+          }
+          trap cleanup EXIT
+          tar -xzf "$archive" -C "$stage" --no-same-owner
+          [[ -f "$stage/index.html" && -f "$stage/index.php" && -f "$stage/.htaccess" ]] || {
+            echo "Public archive validation failed." >&2
+            exit 1
+          }
+
+          shopt -s dotglob nullglob
+          for entry in "$public_path"/*; do
+            name=${entry##*/}
+            case "$name" in
+              .blockbug-public-root|.well-known|cgi-bin|uploads|storage|.user.ini) ;;
+              *) rm -rf -- "$entry" ;;
+            esac
+          done
+          cp -a -- "$stage/." "$public_path/"
+          REMOTE
 
       - name: Upload deployment script
         shell: bash
@@ -731,9 +822,12 @@ jobs:
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
               -o ConnectTimeout=10 \
-              "$SSH_USER@$SSH_HOST" bash -s -- "$REMOTE_SCRIPT" "$REMOTE_ENV_PAYLOAD" <<'REMOTE'
+              "$SSH_USER@$SSH_HOST" bash -s -- \
+              "$REMOTE_SCRIPT" "$REMOTE_ENV_PAYLOAD" "$REMOTE_APP_ARCHIVE" "$REMOTE_PUBLIC_ARCHIVE" <<'REMOTE'
           temporary_script=$1
           environment_payload=$2
+          application_archive=$3
+          public_archive=$4
           case "$temporary_script" in
             /tmp/blockbug-deploy-[0-9]*-[0-9]*.sh) rm -f -- "$temporary_script" ;;
             *) echo "Refusing to remove unexpected temporary path." >&2; exit 1 ;;
@@ -741,6 +835,14 @@ jobs:
           case "$environment_payload" in
             /tmp/blockbug-env-[0-9]*-[0-9]*.json) rm -f -- "$environment_payload" ;;
             *) echo "Refusing to remove unexpected environment payload path." >&2; exit 1 ;;
+          esac
+          case "$application_archive" in
+            /tmp/blockbug-app-[0-9]*-[0-9]*.tar.gz) rm -f -- "$application_archive" ;;
+            *) echo "Refusing to remove unexpected application archive path." >&2; exit 1 ;;
+          esac
+          case "$public_archive" in
+            /tmp/blockbug-web-[0-9]*-[0-9]*.tar.gz) rm -f -- "$public_archive" ;;
+            *) echo "Refusing to remove unexpected public archive path." >&2; exit 1 ;;
           esac
           REMOTE
           fi
@@ -752,6 +854,14 @@ jobs:
           case "$LOCAL_ENV_PAYLOAD" in
             /tmp/blockbug-env-[0-9]*-[0-9]*.json) rm -f -- "$LOCAL_ENV_PAYLOAD" ;;
             *) echo "Refusing to remove unexpected local environment payload path." >&2 ;;
+          esac
+          case "$LOCAL_APP_ARCHIVE" in
+            /tmp/blockbug-app-[0-9]*-[0-9]*.tar.gz) rm -f -- "$LOCAL_APP_ARCHIVE" ;;
+            *) echo "Refusing to remove unexpected local application archive path." >&2 ;;
+          esac
+          case "$LOCAL_PUBLIC_ARCHIVE" in
+            /tmp/blockbug-web-[0-9]*-[0-9]*.tar.gz) rm -f -- "$LOCAL_PUBLIC_ARCHIVE" ;;
+            *) echo "Refusing to remove unexpected local public archive path." >&2 ;;
           esac
           if [[ -n "${SSH_AGENT_PID:-}" ]]; then
             ssh-agent -k >/dev/null 2>&1
