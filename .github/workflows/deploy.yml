@@ -17,8 +17,8 @@ jobs:
     timeout-minutes: 30
     environment: production
     env:
-      PUBLIC_STAGE: ${{ runner.temp }}/blockbug-public-${{ github.run_id }}-${{ github.run_attempt }}
-      LOCAL_ENV_PAYLOAD: ${{ runner.temp }}/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
+      PUBLIC_STAGE: /tmp/blockbug-public-${{ github.run_id }}-${{ github.run_attempt }}
+      LOCAL_ENV_PAYLOAD: /tmp/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
       REMOTE_SCRIPT: /tmp/blockbug-deploy-${{ github.run_id }}-${{ github.run_attempt }}.sh
       REMOTE_ENV_PAYLOAD: /tmp/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
 
@@ -635,11 +635,11 @@ jobs:
           fi
 
           case "$PUBLIC_STAGE" in
-            "$RUNNER_TEMP"/blockbug-public-[0-9]*-[0-9]*) rm -rf -- "$PUBLIC_STAGE" ;;
+            /tmp/blockbug-public-[0-9]*-[0-9]*) rm -rf -- "$PUBLIC_STAGE" ;;
             *) echo "Refusing to remove unexpected runner path." >&2 ;;
           esac
           case "$LOCAL_ENV_PAYLOAD" in
-            "$RUNNER_TEMP"/blockbug-env-[0-9]*-[0-9]*.json) rm -f -- "$LOCAL_ENV_PAYLOAD" ;;
+            /tmp/blockbug-env-[0-9]*-[0-9]*.json) rm -f -- "$LOCAL_ENV_PAYLOAD" ;;
             *) echo "Refusing to remove unexpected local environment payload path." >&2 ;;
           esac
           if [[ -n "${SSH_AGENT_PID:-}" ]]; then
