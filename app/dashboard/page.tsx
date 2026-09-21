@@ -6,14 +6,16 @@ import { useEffect } from 'react'
 import DashboardContent from '@/components/dashboard/dashboard-content'
 
 export default function DashboardPage() {
-  const { isAuthenticated, isLoading } = useAuth()
+  const { isAuthenticated, isLoading, user } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       navigate('/login', { replace: true })
+    } else if (!isLoading && user?.role === 'super_admin') {
+      navigate('/super-admin', { replace: true })
     }
-  }, [isAuthenticated, isLoading, navigate])
+  }, [isAuthenticated, isLoading, navigate, user?.role])
 
   if (isLoading) {
     return (
@@ -23,7 +25,7 @@ export default function DashboardPage() {
     )
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || user?.role === 'super_admin') {
     return null
   }
 

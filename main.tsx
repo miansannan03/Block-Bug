@@ -8,6 +8,8 @@ import Home from '@/app/page'
 import LoginPage from '@/app/login/page'
 import SignupPage from '@/app/signup/page'
 import DashboardPage from '@/app/dashboard/page'
+import AcceptInvitationPage from '@/app/invite/page'
+import SuperAdminPage from '@/app/super-admin/page'
 import '@/app/globals.css'
 
 function App() {
@@ -19,7 +21,11 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/invite" element={<AcceptInvitationPage />} />
+            <Route path="/i" element={<AcceptInvitationPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/organization/*" element={<DashboardPage />} />
+            <Route path="/super-admin/*" element={<SuperAdminPage />} />
             <Route path="*" element={<Home />} />
           </Routes>
         </AuthProvider>

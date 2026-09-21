@@ -5,9 +5,9 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { api, type RoleDefinition, type User, type UserRole } from '@/lib/api'
+import { api, type Invitation, type RoleDefinition, type User, type UserRole } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
-import { Shield, Users } from 'lucide-react'
+import { Copy, Shield, Users } from 'lucide-react'
 
 const roleColors: Record<string, string> = {
   admin: 'bg-red-100 text-red-800',
@@ -21,12 +21,11 @@ export function TeamPage() {
   const [teamMembers, setTeamMembers] = useState<User[]>([])
   const [roles, setRoles] = useState<Record<UserRole, RoleDefinition> | null>(null)
   const [newMember, setNewMember] = useState({
-    name: '',
     email: '',
-    password: '',
-    role: 'tester' as UserRole,
-    status: 'active' as 'active' | 'inactive',
+    role: 'tester' as Exclude<UserRole, 'super_admin'>,
   })
+  const [invitations, setInvitations] = useState<Invitation[]>([])
+  const [generatedLink, setGeneratedLink] = useState('')
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [isCreatingMember, setIsCreatingMember] = useState(false)
@@ -34,10 +33,11 @@ export function TeamPage() {
   const visibleTeamMembers = isAdmin ? teamMembers : teamMembers.filter((member) => member.role !== 'admin')
 
   useEffect(() => {
-    Promise.all([api.getUsers(), api.getRoles()])
-      .then(([users, roleDefinitions]) => {
+    Promise.all([api.getUsers(), api.getRoles(), isAdmin ? api.getUserInvitations() : Promise.resolve({ invitations: [] })])
+      .then(([users, roleDefinitions, inviteResult]) => {
         setTeamMembers(users)
         setRoles(roleDefinitions)
+        setInvitations(inviteResult.invitations)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load team'))
   }, [])
@@ -50,8 +50,8 @@ export function TeamPage() {
 
   const createMember = async () => {
     if (!isAdmin) return
-    if (!newMember.name || !newMember.email || !newMember.password) {
-      setError('Enter name, email, and a temporary password for the new team member.')
+    if (!newMember.email) {
+      setError('Enter the email address for the new team member.')
       setSuccessMessage('')
       return
     }
@@ -60,10 +60,11 @@ export function TeamPage() {
     setError('')
     setSuccessMessage('')
     try {
-      const { user: createdUser } = await api.createUser({ ...newMember, actorRole: user?.role })
-      setTeamMembers((prev) => [...prev, createdUser].sort((a, b) => a.name.localeCompare(b.name)))
-      setNewMember({ name: '', email: '', password: '', role: 'tester', status: 'active' })
-      setSuccessMessage(`${createdUser.name} added to the team.`)
+      const result = await api.inviteUser(newMember.email, newMember.role)
+      setGeneratedLink(`${window.location.origin}/i#${result.token}`)
+      setInvitations((prev) => [result.invitation, ...prev])
+      setNewMember({ email: '', role: 'tester' })
+      setSuccessMessage(`Invitation created for ${result.invitation.email}. Copy and share the secure link.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not add team member.')
     } finally {
@@ -84,50 +85,31 @@ export function TeamPage() {
 
       {isAdmin && (
         <Card className="p-6 border border-border">
-          <p className="text-sm font-semibold text-foreground mb-4">Add Team Member</p>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <Input
-              placeholder="Full name"
-              value={newMember.name}
-              onChange={(event) => setNewMember({ ...newMember, name: event.target.value })}
-            />
+          <p className="text-sm font-semibold text-foreground mb-1">Invite Team Member</p>
+          <p className="mb-4 text-sm text-muted-foreground">The recipient chooses their name and password from a single-use link.</p>
+          <div className="grid gap-4 md:grid-cols-[1fr_220px_auto]">
             <Input
               type="email"
               placeholder="Email address"
               value={newMember.email}
               onChange={(event) => setNewMember({ ...newMember, email: event.target.value })}
             />
-            <Input
-              type="text"
-              placeholder="Temporary password"
-              value={newMember.password}
-              onChange={(event) => setNewMember({ ...newMember, password: event.target.value })}
-            />
             <select
               value={newMember.role}
-              onChange={(event) => setNewMember({ ...newMember, role: event.target.value as UserRole })}
+              onChange={(event) => setNewMember({ ...newMember, role: event.target.value as Exclude<UserRole, 'super_admin'> })}
               className="rounded-md border border-border bg-background px-3 py-2 text-sm capitalize"
             >
               {(['admin', 'manager', 'developer', 'tester'] as UserRole[]).map((role) => (
                 <option key={role} value={role}>{role}</option>
               ))}
             </select>
-            <div className="flex gap-3">
-              <select
-                value={newMember.status}
-                onChange={(event) => setNewMember({ ...newMember, status: event.target.value as 'active' | 'inactive' })}
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm capitalize"
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-              <Button type="button" onClick={createMember} disabled={isCreatingMember}>
-                {isCreatingMember ? 'Adding...' : 'Add'}
-              </Button>
-            </div>
+            <Button type="button" onClick={createMember} disabled={isCreatingMember}>{isCreatingMember ? 'Generating…' : 'Generate Link'}</Button>
           </div>
+          {generatedLink && <div className="mt-4 flex items-center gap-2 rounded-lg border bg-muted/30 p-3"><code className="min-w-0 flex-1 truncate text-xs">{generatedLink}</code><Button size="sm" variant="outline" onClick={() => navigator.clipboard.writeText(generatedLink)}><Copy className="mr-2 h-4 w-4" />Copy Link</Button></div>}
         </Card>
       )}
+
+      {isAdmin && invitations.length > 0 && <Card className="overflow-hidden border border-border"><div className="border-b px-6 py-4"><h3 className="font-semibold">Pending Invitations</h3></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted/40 text-left"><tr><th className="px-6 py-3">Email</th><th className="px-6 py-3">Role</th><th className="px-6 py-3">Status</th><th className="px-6 py-3">Expires</th><th className="px-6 py-3">Actions</th></tr></thead><tbody>{invitations.map((invite) => <tr key={invite.id} className="border-t"><td className="px-6 py-4">{invite.email}</td><td className="px-6 py-4 capitalize">{invite.role === 'admin' ? 'Organization Admin' : invite.role}</td><td className="px-6 py-4 capitalize">{invite.status}</td><td className="px-6 py-4">{new Date(invite.expiresAt).toLocaleString()}</td><td className="px-6 py-4"><div className="flex gap-2"><Button size="sm" variant="outline" disabled={invite.status === 'accepted'} onClick={async () => { const result = await api.regenerateInvitation(invite.id); setGeneratedLink(`${window.location.origin}/i#${result.token}`); setInvitations((prev) => prev.map((item) => item.id === invite.id ? result.invitation : item)) }}>Regenerate</Button><Button size="sm" variant="outline" disabled={invite.status !== 'pending'} onClick={async () => { await api.revokeInvitation(invite.id); setInvitations((prev) => prev.map((item) => item.id === invite.id ? { ...item, status: 'revoked' } : item)) }}>Revoke</Button></div></td></tr>)}</tbody></table></div></Card>}
 
       <Card className="border border-border overflow-hidden">
         <div className="overflow-x-auto">

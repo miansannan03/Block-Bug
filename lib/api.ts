@@ -1,10 +1,12 @@
-export type UserRole = 'admin' | 'manager' | 'developer' | 'tester'
+export type UserRole = 'super_admin' | 'admin' | 'manager' | 'developer' | 'tester'
 
 export interface User {
   id: string
   name: string
   email: string
   role: UserRole
+  platformRole?: 'SUPER_ADMIN' | null
+  organizationRole?: 'ORGANIZATION_ADMIN' | 'MANAGER' | 'DEVELOPER' | 'TESTER' | null
   organizationId?: string | null
   organizationName?: string | null
   organizationEmail?: string | null
@@ -15,7 +17,7 @@ export interface User {
 export interface Organization {
   id: string
   name: string
-  loginEmail: string
+  loginEmail?: string
   status: 'active' | 'inactive'
   createdAt?: Date
   updatedAt?: Date
@@ -36,6 +38,70 @@ export interface Project {
   teamSize: number
   createdAt: Date
   updatedAt?: Date
+}
+
+export interface Invitation {
+  id: string
+  type: 'organization' | 'user'
+  email: string
+  role: 'admin' | 'manager' | 'developer' | 'tester'
+  organizationId?: string | null
+  organizationName?: string | null
+  status: 'pending' | 'accepted' | 'revoked' | 'expired'
+  expiresAt: string
+  acceptedAt?: string | null
+  createdAt: string
+}
+
+export interface PlatformOrganization {
+  id: string
+  name: string
+  status: 'active' | 'inactive'
+  primaryAdminEmail?: string | null
+  userCount: number
+  adminCount: number
+  bugCount: number
+  projectCount: number
+  createdAt: string
+  lastActivityAt?: string | null
+}
+
+export interface PlatformMetrics {
+  totalOrganizations: number
+  activeOrganizations: number
+  suspendedOrganizations: number
+  totalUsers: number
+  totalAdmins: number
+  totalBugs: number
+  totalProjects: number
+  pendingInvitations: number
+}
+
+export interface AuditLog {
+  id: number
+  organizationId?: string | null
+  actorRole?: string | null
+  action: string
+  entityType?: string | null
+  entityId?: string | null
+  succeeded: boolean
+  metadata?: Record<string, unknown> | null
+  ipAddress?: string | null
+  requestId?: string | null
+  createdAt: string
+}
+
+export interface ApplicationErrorLog {
+  id: number
+  organizationId?: string | null
+  userId?: string | null
+  level: string
+  errorType: string
+  message: string
+  module?: string | null
+  httpStatus?: number | null
+  requestId?: string | null
+  createdAt: string
 }
 
 export interface Sprint {
@@ -243,29 +309,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers.set('Content-Type', 'application/json')
   }
   if (typeof window !== 'undefined') {
-    const stored = window.localStorage.getItem('blockbug_user')
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as User
-        if (parsed.organizationId && !headers.has('X-Organization-Id')) {
-          headers.set('X-Organization-Id', parsed.organizationId)
-        }
-      } catch {
-        // Ignore invalid local user cache and let the request proceed normally.
-      }
-    } else {
-      const storedOrganization = window.localStorage.getItem('blockbug_organization')
-      if (storedOrganization) {
-        try {
-          const parsedOrganization = JSON.parse(storedOrganization) as Organization
-          if (parsedOrganization.id && !headers.has('X-Organization-Id')) {
-            headers.set('X-Organization-Id', parsedOrganization.id)
-          }
-        } catch {
-          // Ignore invalid organization cache and let the request proceed normally.
-        }
-      }
-    }
+    const token = window.localStorage.getItem('blockbug_token')
+    if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
   }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -370,68 +415,90 @@ function normalizeIntegration(integration: any): Integration {
   }
 }
 
-function normalizeOrganization(organization: any): Organization {
-  return {
-    ...organization,
-    createdAt: parseDate(organization.createdAt) || undefined,
-    updatedAt: parseDate(organization.updatedAt) || undefined,
-  }
-}
-
 export const api = {
-  async validateOrganization(organizationEmail: string, organizationPassword: string) {
-    const data = await request<{ organization: Organization }>('/organization-login', {
-      method: 'POST',
-      body: JSON.stringify({ organizationEmail, organizationPassword }),
-    })
-    return normalizeOrganization(data.organization)
+  async getPublicSettings() {
+    return request<{ settings: Partial<SystemSettings> }>('/public-settings')
   },
 
-  async login(organizationEmail: string, organizationPassword: string, email: string, password: string) {
-    return request<{ user: User }>('/login', {
+  async login(email: string, password: string) {
+    return request<{ user: User; token: string; expiresAt: string }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ organizationEmail, organizationPassword, email, password }),
+      body: JSON.stringify({ email, password }),
     })
   },
 
-  async memberLogin(organizationId: string, email: string, password: string) {
-    return request<{ user: User }>('/member-login', {
+  async me() {
+    return request<{ user: User }>('/auth/me')
+  },
+
+  async logout() {
+    return request<{ ok: boolean }>('/auth/logout', { method: 'POST' })
+  },
+
+  async inspectInvitation(token: string) {
+    return request<{ invitation: Invitation }>('/invitations/inspect', { method: 'POST', body: JSON.stringify({ token }) })
+  },
+
+  async acceptInvitation(token: string, payload: { name: string; organizationName?: string; password: string; password_confirmation: string }) {
+    return request<{ ok: boolean; userId: string; organizationId: string }>('/invitations/accept', {
       method: 'POST',
-      body: JSON.stringify({ organizationId, email, password }),
+      body: JSON.stringify({ ...payload, token }),
     })
   },
 
-  async signup(
-    organizationName: string,
-    organizationEmail: string,
-    organizationPassword: string,
-    adminName: string,
-    adminEmail: string,
-    adminPassword: string,
-  ) {
-    return request<{ user: User }>('/signup', {
-      method: 'POST',
-      body: JSON.stringify({
-        organizationName,
-        organizationEmail,
-        organizationPassword,
-        adminName,
-        adminEmail,
-        adminPassword,
-      }),
-    })
+  async getPlatformDashboard() {
+    return request<{ metrics: PlatformMetrics; recentOrganizations: PlatformOrganization[]; recentActivity: AuditLog[] }>('/super-admin/dashboard')
+  },
+
+  async getOrganizations() {
+    return request<{ organizations: PlatformOrganization[] }>('/super-admin/organizations')
+  },
+
+  async updateOrganizationStatus(id: string, status: 'active' | 'inactive') {
+    return request<{ organization: PlatformOrganization }>(`/super-admin/organizations/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
+  },
+
+  async deleteOrganization(id: string) {
+    return request<{ ok: boolean }>(`/super-admin/organizations/${id}`, { method: 'DELETE' })
+  },
+
+  async getOrganizationInvitations() {
+    return request<{ invitations: Invitation[] }>('/super-admin/invitations')
+  },
+
+  async inviteOrganization(email: string) {
+    return request<{ invitation: Invitation; token: string }>('/super-admin/invitations', { method: 'POST', body: JSON.stringify({ email }) })
+  },
+
+  async getUserInvitations() {
+    return request<{ invitations: Invitation[] }>('/user-invitations')
+  },
+
+  async inviteUser(email: string, role: Exclude<UserRole, 'super_admin'>) {
+    return request<{ invitation: Invitation; token: string }>('/user-invitations', { method: 'POST', body: JSON.stringify({ email, role }) })
+  },
+
+  async regenerateInvitation(id: string, platform = false) {
+    const base = platform ? '/super-admin/invitations' : '/user-invitations'
+    return request<{ invitation: Invitation; token: string }>(`${base}/${id}/regenerate`, { method: 'POST' })
+  },
+
+  async revokeInvitation(id: string, platform = false) {
+    const base = platform ? '/super-admin/invitations' : '/user-invitations'
+    return request<{ ok: boolean }>(`${base}/${id}/revoke`, { method: 'POST' })
+  },
+
+  async getPlatformAuditLogs() {
+    return request<{ logs: AuditLog[] }>('/super-admin/audit-logs')
+  },
+
+  async getPlatformErrorLogs() {
+    return request<{ logs: ApplicationErrorLog[] }>('/super-admin/error-logs')
   },
 
   async getUsers() {
     const data = await request<{ users: User[] }>('/users')
     return data.users
-  },
-
-  async createUser(payload: { name: string; email: string; password: string; role: UserRole; status?: 'active' | 'inactive'; actorRole?: UserRole }) {
-    return request<{ user: User }>('/users', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    })
   },
 
   async getRoles() {
@@ -581,6 +648,25 @@ export const api = {
   async getBugAttachments(bugId: string) {
     const data = await request<{ attachments: any[] }>(`/bugs/${bugId}/attachments`)
     return data.attachments.map(normalizeBugAttachment)
+  },
+
+  async downloadAttachment(id: string, filename: string) {
+    const token = window.localStorage.getItem('blockbug_token')
+    const response = await fetch(`${API_BASE_URL}/attachments/${encodeURIComponent(id)}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(data.message || 'Attachment download failed')
+    }
+    const objectUrl = URL.createObjectURL(await response.blob())
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
   },
 
   async getBugBlockchainEvents(bugId: string) {

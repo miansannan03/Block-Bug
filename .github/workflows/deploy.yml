@@ -20,10 +20,12 @@ jobs:
       SITE_HOST: blockbug.pk
       PUBLIC_STAGE: /tmp/blockbug-public-${{ github.run_id }}-${{ github.run_attempt }}
       LOCAL_ENV_PAYLOAD: /tmp/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
+      LOCAL_ADMIN_PAYLOAD: /tmp/blockbug-admin-${{ github.run_id }}-${{ github.run_attempt }}.json
       LOCAL_APP_ARCHIVE: /tmp/blockbug-app-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
       LOCAL_PUBLIC_ARCHIVE: /tmp/blockbug-web-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
       REMOTE_SCRIPT: /tmp/blockbug-deploy-${{ github.run_id }}-${{ github.run_attempt }}.sh
       REMOTE_ENV_PAYLOAD: /tmp/blockbug-env-${{ github.run_id }}-${{ github.run_attempt }}.json
+      REMOTE_ADMIN_PAYLOAD: /tmp/blockbug-admin-${{ github.run_id }}-${{ github.run_attempt }}.json
       REMOTE_APP_ARCHIVE: /tmp/blockbug-app-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
       REMOTE_PUBLIC_ARCHIVE: /tmp/blockbug-web-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
 
@@ -44,11 +46,14 @@ jobs:
           DB_DATABASE: ${{ secrets.DB_DATABASE }}
           DB_USERNAME: ${{ secrets.DB_USERNAME }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          SUPER_ADMIN_EMAIL: ${{ secrets.SUPER_ADMIN_EMAIL }}
+          SUPER_ADMIN_PASSWORD: ${{ secrets.SUPER_ADMIN_PASSWORD }}
         run: |
           set -Eeuo pipefail
           required=(
             SSH_PRIVATE_KEY SSH_HOST SSH_PORT SSH_USER APP_PATH
             DB_DATABASE DB_USERNAME DB_PASSWORD
+            SUPER_ADMIN_EMAIL SUPER_ADMIN_PASSWORD
           )
           for name in "${required[@]}"; do
             if [[ -z "${!name:-}" ]]; then
@@ -786,6 +791,61 @@ jobs:
           ssh "${ssh_args[@]}" "$SSH_USER@$SSH_HOST" bash "$REMOTE_SCRIPT" \
             "$APP_PATH" "$PUBLIC_PATH" "$PHP_BINARY" "$COMPOSER_BINARY"
 
+      - name: Ensure production Super Admin
+        shell: bash
+        timeout-minutes: 3
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ steps.ssh.outputs.port }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          APP_PATH: ${{ secrets.APP_PATH }}
+          SUPER_ADMIN_EMAIL: ${{ secrets.SUPER_ADMIN_EMAIL }}
+          SUPER_ADMIN_PASSWORD: ${{ secrets.SUPER_ADMIN_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          jq -n \
+            --arg email "$SUPER_ADMIN_EMAIL" \
+            --arg password "$SUPER_ADMIN_PASSWORD" \
+            --arg name "BlockBug Owner" \
+            '{email: $email, password: $password, name: $name}' \
+            > "$LOCAL_ADMIN_PAYLOAD"
+          chmod 600 "$LOCAL_ADMIN_PAYLOAD"
+
+          ssh_args=(
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o ConnectTimeout=15
+          )
+          scp \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "$LOCAL_ADMIN_PAYLOAD" "$SSH_USER@$SSH_HOST:$REMOTE_ADMIN_PAYLOAD"
+
+          ssh "${ssh_args[@]}" "$SSH_USER@$SSH_HOST" bash -s -- \
+            "$APP_PATH" "$PHP_BINARY" "$REMOTE_ADMIN_PAYLOAD" <<'REMOTE'
+          set -Eeuo pipefail
+          app_path=$1
+          php_binary=$2
+          payload=$3
+          cleanup() { rm -f -- "$payload"; }
+          trap cleanup EXIT
+          case "$payload" in
+            /tmp/blockbug-admin-[0-9]*-[0-9]*.json) ;;
+            *) echo "Unexpected Super Admin payload path." >&2; exit 1 ;;
+          esac
+          chmod 600 "$payload"
+          cd "$app_path"
+          "$php_binary" artisan blockbug:create-super-admin \
+            --credentials-file="$payload" --if-missing --no-interaction
+          REMOTE
+          rm -f -- "$LOCAL_ADMIN_PAYLOAD"
+
       - name: Check production health
         shell: bash
         timeout-minutes: 3
@@ -828,7 +888,7 @@ jobs:
               -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
               -o ConnectTimeout=10 \
               "$SSH_USER@$SSH_HOST" bash -s -- \
-              "$REMOTE_SCRIPT" "$REMOTE_ENV_PAYLOAD" "$REMOTE_APP_ARCHIVE" "$REMOTE_PUBLIC_ARCHIVE" <<'REMOTE'
+            "$REMOTE_SCRIPT" "$REMOTE_ENV_PAYLOAD" "$REMOTE_APP_ARCHIVE" "$REMOTE_PUBLIC_ARCHIVE" <<'REMOTE'
           temporary_script=$1
           environment_payload=$2
           application_archive=$3
@@ -850,6 +910,18 @@ jobs:
             *) echo "Refusing to remove unexpected public archive path." >&2; exit 1 ;;
           esac
           REMOTE
+            ssh -p "$SSH_PORT" \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -o ConnectTimeout=10 \
+              "$SSH_USER@$SSH_HOST" bash -s -- "$REMOTE_ADMIN_PAYLOAD" <<'REMOTE'
+          admin_payload=$1
+          case "$admin_payload" in
+            /tmp/blockbug-admin-[0-9]*-[0-9]*.json) rm -f -- "$admin_payload" ;;
+            *) echo "Refusing to remove unexpected admin payload path." >&2; exit 1 ;;
+          esac
+          REMOTE
           fi
 
           case "$PUBLIC_STAGE" in
@@ -859,6 +931,10 @@ jobs:
           case "$LOCAL_ENV_PAYLOAD" in
             /tmp/blockbug-env-[0-9]*-[0-9]*.json) rm -f -- "$LOCAL_ENV_PAYLOAD" ;;
             *) echo "Refusing to remove unexpected local environment payload path." >&2 ;;
+          esac
+          case "$LOCAL_ADMIN_PAYLOAD" in
+            /tmp/blockbug-admin-[0-9]*-[0-9]*.json) rm -f -- "$LOCAL_ADMIN_PAYLOAD" ;;
+            *) echo "Refusing to remove unexpected local admin payload path." >&2 ;;
           esac
           case "$LOCAL_APP_ARCHIVE" in
             /tmp/blockbug-app-[0-9]*-[0-9]*.tar.gz) rm -f -- "$LOCAL_APP_ARCHIVE" ;;
