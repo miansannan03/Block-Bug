@@ -31,6 +31,8 @@ recommended):
 | `DB_DATABASE` | Production MySQL database name. |
 | `DB_USERNAME` | Production MySQL username. |
 | `DB_PASSWORD` | Production MySQL password. |
+| `SUPER_ADMIN_EMAIL` | Initial platform Super Admin email. |
+| `SUPER_ADMIN_PASSWORD` | Initial platform Super Admin password (minimum 12 characters). |
 
 No secrets are required for the public path, PHP, Composer, frontend API URL,
 or health URL. The workflow uses the SSH account's `$HOME/public_html`, selects
@@ -160,7 +162,10 @@ conflicts with cPanel, Cloudflare, or another reverse proxy.
    `APP_PATH/storage/app/public`.
 7. Uses Laravel maintenance mode on upgrades, runs Composer, clears stale
    framework caches, and runs `php artisan migrate --force`.
-8. Checks `https://blockbug.pk/` for the React application shell, then calls
+8. Creates the configured platform Super Admin from an encrypted, temporary
+   credentials file if that email does not already exist. Later deployments do
+   not reset the account password.
+9. Checks `https://blockbug.pk/` for the React application shell, then calls
    `https://blockbug.pk/api/health`, which checks Laravel and its database.
 
 The remote Composer command is:

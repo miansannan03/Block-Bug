@@ -13,6 +13,11 @@ export interface RoleDefinition {
 }
 
 export const ROLE_DEFINITIONS: Record<UserRole, RoleDefinition> = {
+  super_admin: {
+    label: 'Super Admin',
+    description: 'Platform-level administration outside customer organizations.',
+    permissions: ['Manage organizations', 'View platform metrics', 'Review platform logs'],
+  },
   admin: {
     label: 'Administrator',
     description: 'Full system access with user management and settings control.',
@@ -55,15 +60,7 @@ interface AuthContextType {
   user: User | null
   organization: Organization | null
   isLoading: boolean
-  login: (organizationId: string, email: string, password: string) => Promise<void>
-  signup: (
-    organizationName: string,
-    organizationEmail: string,
-    organizationPassword: string,
-    adminName: string,
-    adminEmail: string,
-    adminPassword: string,
-  ) => Promise<void>
+  login: (email: string, password: string) => Promise<User>
   updateProfile: (name: string) => Promise<void>
   logout: () => void
   isAuthenticated: boolean
@@ -96,31 +93,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    const storedOrganization = localStorage.getItem('blockbug_organization')
-    if (storedOrganization) {
-      try {
-        setOrganization(JSON.parse(storedOrganization))
-      } catch {
-        localStorage.removeItem('blockbug_organization')
-      }
+    const token = localStorage.getItem('blockbug_token')
+    if (!token) {
+      setIsLoading(false)
+      return
     }
-
-    const stored = localStorage.getItem('blockbug_user')
-    if (stored) {
-      try {
-        const parsedUser = JSON.parse(stored)
-        setUser(parsedUser)
-        rememberOrganizationFromUser(parsedUser)
-      } catch {
+    api.me()
+      .then(({ user: currentUser }) => {
+        setUser(currentUser)
+        rememberOrganizationFromUser(currentUser)
+        localStorage.setItem('blockbug_user', JSON.stringify(currentUser))
+        if (currentUser.role !== 'super_admin') return api.getUsers().then(setAvailableUsers)
+      })
+      .catch(() => {
+        localStorage.removeItem('blockbug_token')
         localStorage.removeItem('blockbug_user')
-      }
-    }
-
-    api.getUsers()
-      .then(setAvailableUsers)
-      .catch(() => setAvailableUsers([]))
-
-    setIsLoading(false)
+        localStorage.removeItem('blockbug_organization')
+      })
+      .finally(() => setIsLoading(false))
   }, [])
 
   useEffect(() => {
@@ -154,60 +144,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [settings.session_timeout_minutes, user])
 
-  const login = async (organizationId: string, email: string, password: string) => {
+  const login = async (email: string, password: string) => {
     setIsLoading(true)
     try {
-      const { user } = await api.memberLogin(organizationId, email, password)
+      const { user, token } = await api.login(email, password)
+      localStorage.setItem('blockbug_token', token)
       setUser(user)
+      if (user.role === 'super_admin') {
+        setOrganization(null)
+        localStorage.removeItem('blockbug_organization')
+      }
       rememberOrganizationFromUser(user)
       localStorage.setItem('blockbug_user', JSON.stringify(user))
       localStorage.setItem('blockbug_last_active_at', String(Date.now()))
-      try {
+      if (user.role !== 'super_admin') try {
         setAvailableUsers(await api.getUsers())
       } catch {
         setAvailableUsers([])
       }
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const signup = async (
-    organizationName: string,
-    organizationEmail: string,
-    organizationPassword: string,
-    adminName: string,
-    adminEmail: string,
-    adminPassword: string,
-  ) => {
-    setIsLoading(true)
-    try {
-      const { user } = await api.signup(
-        organizationName,
-        organizationEmail,
-        organizationPassword,
-        adminName,
-        adminEmail,
-        adminPassword,
-      )
-      setUser(user)
-      rememberOrganizationFromUser(user)
-      localStorage.setItem('blockbug_user', JSON.stringify(user))
-      localStorage.setItem('blockbug_last_active_at', String(Date.now()))
-      try {
-        setAvailableUsers(await api.getUsers())
-      } catch {
-        setAvailableUsers([])
-      }
+      window.dispatchEvent(new Event('blockbug:auth-changed'))
+      return user
     } finally {
       setIsLoading(false)
     }
   }
 
   const logout = () => {
+    void api.logout().catch(() => undefined)
     setUser(null)
+    setOrganization(null)
+    setAvailableUsers([])
+    localStorage.removeItem('blockbug_token')
     localStorage.removeItem('blockbug_user')
+    localStorage.removeItem('blockbug_organization')
     localStorage.removeItem('blockbug_last_active_at')
+    window.dispatchEvent(new Event('blockbug:auth-changed'))
   }
 
   const updateProfile = async (name: string) => {
@@ -225,7 +196,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         organization,
         isLoading,
         login,
-        signup,
         updateProfile,
         logout,
         isAuthenticated: !!user,

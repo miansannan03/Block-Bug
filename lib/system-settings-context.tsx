@@ -13,7 +13,7 @@ export const defaultSystemSettings: SystemSettings = {
   date_format: 'Y-m-d',
   dashboard_default_view: 'overview',
   session_timeout_minutes: 120,
-  allow_signup: true,
+  allow_signup: false,
 }
 
 interface SystemSettingsContextType {
@@ -70,7 +70,11 @@ export function SystemSettingsProvider({ children }: { children: React.ReactNode
   const [isLoading, setIsLoading] = useState(true)
 
   const refreshSettings = async () => {
-    const result = await api.getSystemSettings()
+    const storedUser = window.localStorage.getItem('blockbug_user')
+    const isSuperAdmin = storedUser ? (() => { try { return JSON.parse(storedUser).role === 'super_admin' } catch { return false } })() : false
+    const result = window.localStorage.getItem('blockbug_token') && !isSuperAdmin
+      ? await api.getSystemSettings()
+      : await api.getPublicSettings()
     setSettings({ ...defaultSystemSettings, ...result.settings })
   }
 
@@ -86,8 +90,10 @@ export function SystemSettingsProvider({ children }: { children: React.ReactNode
     }
 
     window.addEventListener('blockbug:system-settings-updated', handleSettingsUpdated)
+    window.addEventListener('blockbug:auth-changed', handleSettingsUpdated)
     return () => {
       window.removeEventListener('blockbug:system-settings-updated', handleSettingsUpdated)
+      window.removeEventListener('blockbug:auth-changed', handleSettingsUpdated)
     }
   }, [])
 

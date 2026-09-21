@@ -22,13 +22,6 @@ export function SettingsPage() {
     email: user?.email || '',
     role: user?.role || '',
   })
-  const [newMember, setNewMember] = useState({
-    name: '',
-    email: '',
-    password: '',
-    role: 'tester' as UserRole,
-    status: 'active' as 'active' | 'inactive',
-  })
   const [preferences, setPreferences] = useState<Record<string, boolean>>({})
   const [roles, setRoles] = useState<Record<UserRole, RoleDefinition> | null>(null)
   const [teamMembers, setTeamMembers] = useState<User[]>([])
@@ -191,26 +184,6 @@ export function SettingsPage() {
       showSuccess(`${updatedUser.name} updated.`)
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Could not update user.')
-    }
-  }
-
-  const createMember = async () => {
-    if (!newMember.name || !newMember.email || !newMember.password) {
-      showError('Enter name, email, and a temporary password for the new team member.')
-      return
-    }
-
-    setActiveAction('create-member')
-    try {
-      const { user: createdUser } = await api.createUser({ ...newMember, actorRole: user?.role })
-      setTeamMembers((prev) => [...prev, createdUser].sort((a, b) => a.name.localeCompare(b.name)))
-      setNewMember({ name: '', email: '', password: '', role: 'tester', status: 'active' })
-      await refreshAdminAudit()
-      showSuccess(`${createdUser.name} added to the workspace.`)
-    } catch (error) {
-      showError(error instanceof Error ? error.message : 'Could not add team member.')
-    } finally {
-      setActiveAction('')
     }
   }
 
@@ -417,48 +390,8 @@ export function SettingsPage() {
           <Card className="p-8 border border-border">
             <h3 className="text-xl font-semibold mb-6 text-foreground">User Management</h3>
             <div className="mb-6 rounded-lg border border-border bg-muted/20 p-5">
-              <p className="text-sm font-semibold text-foreground mb-4">Add Team Member</p>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                <Input
-                  placeholder="Full name"
-                  value={newMember.name}
-                  onChange={(event) => setNewMember({ ...newMember, name: event.target.value })}
-                />
-                <Input
-                  type="email"
-                  placeholder="Email address"
-                  value={newMember.email}
-                  onChange={(event) => setNewMember({ ...newMember, email: event.target.value })}
-                />
-                <Input
-                  type="text"
-                  placeholder="Temporary password"
-                  value={newMember.password}
-                  onChange={(event) => setNewMember({ ...newMember, password: event.target.value })}
-                />
-                <select
-                  value={newMember.role}
-                  onChange={(event) => setNewMember({ ...newMember, role: event.target.value as UserRole })}
-                  className="rounded-md border border-border bg-background px-3 py-2 text-sm capitalize"
-                >
-                  {(['admin', 'manager', 'developer', 'tester'] as UserRole[]).map((role) => (
-                    <option key={role} value={role}>{role}</option>
-                  ))}
-                </select>
-                <div className="flex gap-3">
-                  <select
-                    value={newMember.status}
-                    onChange={(event) => setNewMember({ ...newMember, status: event.target.value as 'active' | 'inactive' })}
-                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm capitalize"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                  <Button type="button" onClick={createMember} disabled={isBusy('create-member')}>
-                    {isBusy('create-member') ? 'Adding...' : 'Add'}
-                  </Button>
-                </div>
-              </div>
+              <p className="text-sm font-semibold text-foreground">New accounts use secure invitations</p>
+              <p className="mt-1 text-sm text-muted-foreground">Open Team to invite members, choose their role, and copy a single-use onboarding link. Passwords are never chosen by an administrator.</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -656,18 +589,6 @@ export function SettingsPage() {
                   onChange={(event) => setSystemSettings({ ...systemSettings, session_timeout_minutes: Number(event.target.value) })}
                 />
               </div>
-              <label className="flex items-center gap-3 p-3 bg-muted rounded-lg cursor-pointer hover:bg-muted/80 transition">
-                <input
-                  type="checkbox"
-                  checked={Boolean(systemSettings.allow_signup)}
-                  onChange={(event) => setSystemSettings({ ...systemSettings, allow_signup: event.target.checked })}
-                  className="w-4 h-4 rounded"
-                />
-                <div className="flex-1">
-                  <p className="font-medium text-foreground">Allow public signup</p>
-                  <p className="text-xs text-muted-foreground">Disable this if admins should create all accounts manually.</p>
-                </div>
-              </label>
             </div>
             <Button className="mt-6" onClick={handleSystemSettingsSave} disabled={isBusy('project-defaults')}>
               {isBusy('project-defaults') ? 'Saving...' : 'Save System Configuration'}

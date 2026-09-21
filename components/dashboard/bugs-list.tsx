@@ -1118,16 +1118,15 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                       {attachments.length > 0 ? (
                         <div className="space-y-2">
                           {attachments.map((attachment) => (
-                            <a
+                            <button
+                              type="button"
                               key={attachment.id}
-                              href={attachment.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex items-center justify-between rounded-lg border border-border bg-background/80 px-4 py-3 text-sm hover:bg-muted/40"
+                              onClick={() => void api.downloadAttachment(attachment.id, attachment.originalName)}
+                              className="flex w-full items-center justify-between rounded-lg border border-border bg-background/80 px-4 py-3 text-left text-sm hover:bg-muted/40"
                             >
                               <span className="font-medium text-foreground">{attachment.originalName}</span>
                               <span className="text-xs text-muted-foreground">{Math.max(1, Math.round(attachment.fileSize / 1024))} KB</span>
-                            </a>
+                            </button>
                           ))}
                         </div>
                       ) : (
