@@ -153,20 +153,21 @@ fi
 "$PHP_BINARY" artisan view:clear
 "$PHP_BINARY" artisan event:clear
 "$PHP_BINARY" artisan clear-compiled
-"$PHP_BINARY" -r '
-    require "vendor/autoload.php";
-    $app = require "bootstrap/app.php";
-    $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-    $key = config("app.key");
-    $valid = config("app.env") === "production"
-        && config("app.debug") === false
-        && is_string($key)
-        && strlen($key) > 20
-        && config("queue.default") === "sync"
-        && config("cache.default") === "file"
-        && config("session.driver") === "file";
-    exit($valid ? 0 : 1);
-' || fail "Production .env validation failed; verify APP_ENV, APP_KEY, APP_DEBUG, QUEUE_CONNECTION, CACHE_STORE, and SESSION_DRIVER."
+"$PHP_BINARY" <<'PHP' || fail "Production .env validation failed; verify APP_ENV, APP_KEY, APP_DEBUG, QUEUE_CONNECTION, CACHE_STORE, and SESSION_DRIVER."
+<?php
+require 'vendor/autoload.php';
+$app = require 'bootstrap/app.php';
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$key = config('app.key');
+$valid = config('app.env') === 'production'
+    && config('app.debug') === false
+    && is_string($key)
+    && strlen($key) > 20
+    && config('queue.default') === 'sync'
+    && config('cache.default') === 'file'
+    && config('session.driver') === 'file';
+exit($valid ? 0 : 1);
+PHP
 "$PHP_BINARY" artisan migrate --force
 "$PHP_BINARY" artisan route:list --path=api/health >/dev/null
 

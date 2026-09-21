@@ -20,95 +20,110 @@ return new class extends Migration
             }
         });
 
-        Schema::create('platform_admins', function (Blueprint $table): void {
-            $table->string('id', 36)->primary();
-            $table->string('name', 120);
-            $table->string('email', 180)->unique();
-            $table->string('password_hash');
-            $table->enum('status', ['active', 'inactive'])->default('active')->index();
-            $table->timestamps();
-        });
+        if (! Schema::hasTable('platform_admins')) {
+            Schema::create('platform_admins', function (Blueprint $table): void {
+                $table->string('id', 36)->primary();
+                $table->string('name', 120);
+                $table->string('email', 180)->unique();
+                $table->string('password_hash');
+                $table->enum('status', ['active', 'inactive'])->default('active')->index();
+                $table->timestamps();
+            });
+        }
 
-        Schema::create('access_tokens', function (Blueprint $table): void {
-            $table->string('id', 36)->primary();
-            $table->enum('actor_type', ['platform_admin', 'user']);
-            $table->string('actor_id', 36)->index();
-            $table->string('token_hash', 64)->unique();
-            $table->timestamp('last_used_at')->nullable();
-            $table->timestamp('expires_at')->index();
-            $table->timestamp('revoked_at')->nullable()->index();
-            $table->timestamps();
-            $table->index(['actor_type', 'actor_id']);
-        });
+        if (! Schema::hasTable('access_tokens')) {
+            Schema::create('access_tokens', function (Blueprint $table): void {
+                $table->string('id', 36)->primary();
+                $table->enum('actor_type', ['platform_admin', 'user']);
+                $table->string('actor_id', 36)->index();
+                $table->string('token_hash', 64)->unique();
+                $table->timestamp('last_used_at')->nullable();
+                // Avoid legacy MySQL's implicit zero-date default for required TIMESTAMP columns.
+                $table->dateTime('expires_at')->index();
+                $table->timestamp('revoked_at')->nullable()->index();
+                $table->timestamps();
+                $table->index(['actor_type', 'actor_id']);
+            });
+        }
 
-        Schema::create('invitations', function (Blueprint $table): void {
-            $table->string('id', 36)->primary();
-            $table->enum('type', ['organization', 'user'])->index();
-            $table->string('organization_id', 36)->nullable()->index();
-            $table->string('email', 180)->index();
-            $table->string('role', 40)->default('admin');
-            $table->string('token_hash', 64)->unique();
-            $table->enum('status', ['pending', 'accepted', 'revoked', 'expired'])->default('pending')->index();
-            $table->string('created_by_type', 40);
-            $table->string('created_by_id', 36)->index();
-            $table->timestamp('expires_at')->index();
-            $table->timestamp('accepted_at')->nullable();
-            $table->timestamp('revoked_at')->nullable();
-            $table->timestamps();
-            $table->index(['organization_id', 'status', 'created_at']);
-            $table->foreign('organization_id')->references('id')->on('organizations')->nullOnDelete();
-        });
+        if (! Schema::hasTable('invitations')) {
+            Schema::create('invitations', function (Blueprint $table): void {
+                $table->string('id', 36)->primary();
+                $table->enum('type', ['organization', 'user'])->index();
+                $table->string('organization_id', 36)->nullable()->index();
+                $table->string('email', 180)->index();
+                $table->string('role', 40)->default('admin');
+                $table->string('token_hash', 64)->unique();
+                $table->enum('status', ['pending', 'accepted', 'revoked', 'expired'])->default('pending')->index();
+                $table->string('created_by_type', 40);
+                $table->string('created_by_id', 36)->index();
+                $table->dateTime('expires_at')->index();
+                $table->timestamp('accepted_at')->nullable();
+                $table->timestamp('revoked_at')->nullable();
+                $table->timestamps();
+                $table->index(['organization_id', 'status', 'created_at']);
+                $table->foreign('organization_id')->references('id')->on('organizations')->nullOnDelete();
+            });
+        }
 
-        Schema::create('organization_settings', function (Blueprint $table): void {
-            $table->string('organization_id', 36);
-            $table->string('setting_key', 100);
-            $table->text('setting_value');
-            $table->timestamps();
-            $table->primary(['organization_id', 'setting_key']);
-            $table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete();
-        });
+        if (! Schema::hasTable('organization_settings')) {
+            Schema::create('organization_settings', function (Blueprint $table): void {
+                $table->string('organization_id', 36);
+                $table->string('setting_key', 100);
+                $table->text('setting_value');
+                $table->timestamps();
+                $table->primary(['organization_id', 'setting_key']);
+                $table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete();
+            });
+        }
 
-        Schema::create('organization_integrations', function (Blueprint $table): void {
-            $table->string('organization_id', 36);
-            $table->string('integration_id', 36);
-            $table->enum('status', ['connected', 'available'])->default('available');
-            $table->timestamps();
-            $table->primary(['organization_id', 'integration_id']);
-            $table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete();
-            $table->foreign('integration_id')->references('id')->on('integrations')->cascadeOnDelete();
-        });
+        if (! Schema::hasTable('organization_integrations')) {
+            Schema::create('organization_integrations', function (Blueprint $table): void {
+                $table->string('organization_id', 36);
+                $table->string('integration_id', 36);
+                $table->enum('status', ['connected', 'available'])->default('available');
+                $table->timestamps();
+                $table->primary(['organization_id', 'integration_id']);
+                $table->foreign('organization_id')->references('id')->on('organizations')->cascadeOnDelete();
+                $table->foreign('integration_id')->references('id')->on('integrations')->cascadeOnDelete();
+            });
+        }
 
-        Schema::create('audit_logs', function (Blueprint $table): void {
-            $table->bigIncrements('id');
-            $table->string('organization_id', 36)->nullable()->index();
-            $table->string('actor_type', 40)->nullable();
-            $table->string('actor_id', 36)->nullable()->index();
-            $table->string('actor_role', 40)->nullable();
-            $table->string('action', 100)->index();
-            $table->string('entity_type', 80)->nullable();
-            $table->string('entity_id', 80)->nullable();
-            $table->boolean('succeeded')->default(true)->index();
-            $table->json('metadata')->nullable();
-            $table->string('ip_address', 45)->nullable();
-            $table->string('request_id', 64)->nullable()->index();
-            $table->timestamp('created_at')->useCurrent()->index();
-            $table->foreign('organization_id')->references('id')->on('organizations')->nullOnDelete();
-        });
+        if (! Schema::hasTable('audit_logs')) {
+            Schema::create('audit_logs', function (Blueprint $table): void {
+                $table->bigIncrements('id');
+                $table->string('organization_id', 36)->nullable()->index();
+                $table->string('actor_type', 40)->nullable();
+                $table->string('actor_id', 36)->nullable()->index();
+                $table->string('actor_role', 40)->nullable();
+                $table->string('action', 100)->index();
+                $table->string('entity_type', 80)->nullable();
+                $table->string('entity_id', 80)->nullable();
+                $table->boolean('succeeded')->default(true)->index();
+                $table->json('metadata')->nullable();
+                $table->string('ip_address', 45)->nullable();
+                $table->string('request_id', 64)->nullable()->index();
+                $table->timestamp('created_at')->useCurrent()->index();
+                $table->foreign('organization_id')->references('id')->on('organizations')->nullOnDelete();
+            });
+        }
 
-        Schema::create('application_error_logs', function (Blueprint $table): void {
-            $table->bigIncrements('id');
-            $table->string('organization_id', 36)->nullable()->index();
-            $table->string('user_id', 36)->nullable()->index();
-            $table->string('level', 20)->default('error')->index();
-            $table->string('error_type', 180);
-            $table->text('message');
-            $table->string('module', 180)->nullable()->index();
-            $table->unsignedSmallInteger('http_status')->nullable()->index();
-            $table->string('request_id', 64)->nullable()->index();
-            $table->longText('stack_trace')->nullable();
-            $table->timestamp('created_at')->useCurrent()->index();
-            $table->foreign('organization_id')->references('id')->on('organizations')->nullOnDelete();
-        });
+        if (! Schema::hasTable('application_error_logs')) {
+            Schema::create('application_error_logs', function (Blueprint $table): void {
+                $table->bigIncrements('id');
+                $table->string('organization_id', 36)->nullable()->index();
+                $table->string('user_id', 36)->nullable()->index();
+                $table->string('level', 20)->default('error')->index();
+                $table->string('error_type', 180);
+                $table->text('message');
+                $table->string('module', 180)->nullable()->index();
+                $table->unsignedSmallInteger('http_status')->nullable()->index();
+                $table->string('request_id', 64)->nullable()->index();
+                $table->longText('stack_trace')->nullable();
+                $table->timestamp('created_at')->useCurrent()->index();
+                $table->foreign('organization_id')->references('id')->on('organizations')->nullOnDelete();
+            });
+        }
 
         // Preserve existing organization defaults while making every setting tenant-owned.
         $legacySettings = Schema::hasTable('system_settings') ? DB::table('system_settings')->get() : collect();
