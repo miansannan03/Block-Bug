@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { AlertCircle, LockKeyhole } from 'lucide-react'
+import { AlertCircle, Eye, EyeOff, LockKeyhole } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useSystemSettings } from '@/lib/system-settings-context'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ import { BlockBugLogo } from '@/components/blockbug-logo'
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
@@ -58,7 +59,26 @@ export default function LoginPage() {
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium">Password</label>
-              <Input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" required />
+              <div className="relative">
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Enter your password"
+                  className="pr-11"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <Button type="submit" className="w-full" disabled={loading}>{loading ? 'Signing in…' : 'Sign In'}</Button>
           </form>

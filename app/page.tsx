@@ -27,30 +27,33 @@ import {
 const packageTiers = [
   {
     name: 'Starter',
-    price: '$29',
-    cadence: '/month',
-    description: 'A clean starting point for small teams getting bug reporting and verification under one roof.',
-    badge: 'For small teams',
-    accent: 'border-border/70 bg-card',
-    features: ['1 organization workspace', 'Core bug workflow', 'Project tracking', 'Email-based member access'],
+    price: '499',
+    cadence: '/ month',
+    description: 'For small teams moving bug reports out of chats and spreadsheets into one accountable workflow.',
+    badge: 'Start lean',
+    accent: 'border-border/70 bg-card hover:border-primary/30 hover:bg-primary/5 hover:shadow-[0_18px_50px_rgba(59,130,246,0.10)]',
+    features: ['Up to 5 team members', 'Up to 3 active projects', 'Bug assignment and status tracking', 'Developer and tester workflows', 'Dashboard overview'],
+    bestFor: 'Freelancers, startups, and small QA teams',
   },
   {
     name: 'Growth',
-    price: '$79',
-    cadence: '/month',
-    description: 'Balanced for growing product teams that need sprint planning, cleaner routing, and reporting.',
+    price: '699',
+    cadence: '/ month',
+    description: 'For growing product teams coordinating releases across managers, developers, and testers.',
     badge: 'Most popular',
-    accent: 'border-primary/30 bg-primary/5 shadow-[0_18px_50px_rgba(59,130,246,0.10)]',
-    features: ['Everything in Starter', 'Sprint planning', 'Verification routing', 'Blockchain proof layer'],
+    accent: 'border-border/70 bg-card hover:border-primary/30 hover:bg-primary/5 hover:shadow-[0_18px_50px_rgba(59,130,246,0.10)]',
+    features: ['Up to 20 team members', 'Up to 10 active projects', 'Sprint planning and carry-over', 'Tester verification and comments', 'Reports and blockchain proof'],
+    bestFor: 'Software houses and growing product teams',
   },
   {
     name: 'Scale',
-    price: '$149',
-    cadence: '/month',
-    description: 'For larger organizations that want deeper visibility, tighter audit trails, and cleaner handoffs.',
-    badge: 'Advanced control',
-    accent: 'border-border/70 bg-card',
-    features: ['Everything in Growth', 'Multi-team organization flow', 'Operational reporting', 'Priority support'],
+    price: '999',
+    cadence: '/ month',
+    description: 'For established organizations that need more capacity, governance, and operational visibility.',
+    badge: 'For larger teams',
+    accent: 'border-border/70 bg-card hover:border-primary/30 hover:bg-primary/5 hover:shadow-[0_18px_50px_rgba(59,130,246,0.10)]',
+    features: ['Up to 50 team members', 'Unlimited active projects', 'Full activity and audit history', 'Advanced organization controls', 'Priority onboarding and support'],
+    bestFor: 'Established teams with multiple projects',
   },
 ]
 
@@ -134,7 +137,7 @@ export default function Home() {
                     variant="ghost"
                     className={settings.allow_signup ? 'hidden font-medium md:inline-flex' : 'font-medium'}
                   >
-                    Organization Login
+                    Log In
                   </Button>
                 </Link>
                 {settings.allow_signup && (
@@ -181,7 +184,7 @@ export default function Home() {
                   <>
                     <Link to="/login">
                       <Button size="lg" className="rounded-xl px-6">
-                        Log In to Organization
+                        Log In to BlockBug
                       </Button>
                     </Link>
                     {settings.allow_signup && (
@@ -316,7 +319,8 @@ export default function Home() {
                 Choose the workspace shape that fits your team.
               </h2>
               <p className="mt-4 text-base leading-7 text-muted-foreground">
-                Start lean, grow into sprint planning and verification structure, and keep the same organization-first workflow.
+                Straightforward monthly pricing in Pakistani rupees. Every plan includes one private organization workspace,
+                role-based access, and the complete bug lifecycle.
               </p>
             </div>
 
@@ -333,6 +337,7 @@ export default function Home() {
                   <p className="mt-3 text-sm leading-6 text-muted-foreground">{tier.description}</p>
 
                   <div className="mt-5 flex items-end gap-1">
+                    <span className="pb-1 text-sm font-semibold text-foreground">PKR</span>
                     <span className="text-4xl font-semibold text-foreground">{tier.price}</span>
                     <span className="pb-1 text-sm text-muted-foreground">{tier.cadence}</span>
                   </div>
@@ -351,13 +356,7 @@ export default function Home() {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                         Best For
                       </p>
-                      <p className="mt-1 text-sm font-medium text-foreground">
-                        {tier.name === 'Starter'
-                          ? 'New teams validating the workflow'
-                          : tier.name === 'Growth'
-                            ? 'Teams running sprints and tester reviews'
-                            : 'Organizations needing stronger audit visibility'}
-                      </p>
+                      <p className="mt-1 text-sm font-medium text-foreground">{tier.bestFor}</p>
                     </div>
                   </div>
                 </Card>
