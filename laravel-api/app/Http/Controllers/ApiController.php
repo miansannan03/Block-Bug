@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Support\AuditLogger;
+use App\Support\BugProofRecorder;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,8 @@ class ApiController extends Controller
         'comment_notifications' => true,
         'daily_digest' => true,
     ];
+
+    public function __construct(private readonly BugProofRecorder $bugProofRecorder) {}
 
     private function orgId(Request $request): string
     {
@@ -407,7 +410,9 @@ class ApiController extends Controller
             'actual_result' => $data['actualResult'] ?? null, 'environment' => $data['environment'] ?? null,
             'created_at' => now(), 'updated_at' => now(),
         ]);
-        DB::table('activities')->insert(['id' => $this->id('act-'), 'org_id' => $orgId, 'bug_id' => $id, 'type' => 'created', 'user_id' => $actor->id, 'user_name' => $actor->name, 'message' => 'Created new bug report', 'created_at' => now()]);
+        $activityId = $this->id('act-');
+        $activityAt = now();
+        DB::table('activities')->insert(['id' => $activityId, 'org_id' => $orgId, 'bug_id' => $id, 'type' => 'created', 'user_id' => $actor->id, 'user_name' => $actor->name, 'message' => 'Created new bug report', 'created_at' => $activityAt]);
         $attachment = null;
         if ($request->hasFile('attachment')) {
             $file = $request->file('attachment');
@@ -422,12 +427,13 @@ class ApiController extends Controller
         }
         $this->notify($orgId, 'New bug reported', $data['title'], 'bug_created', 'bug', $id, 'bugs');
         AuditLogger::write($request, 'BUG_CREATED', 'bug', $id, ['projectId' => $data['projectId']]);
-
-        /*
-         * Legacy blockchain recording was intentionally removed from runtime.
-         * The UI wording remains for product presentation, but Laravel stores bug
-         * workflow data only in MySQL and calls no chain, wallet, node, or audit service.
-         */
+        $this->bugProofRecorder->record($id, 'bug_created', $actor->email, [
+            'status' => $settings['default_bug_status'],
+            'title' => $data['title'],
+            'projectId' => $data['projectId'],
+            'priority' => $data['priority'],
+            'severity' => $data['severity'],
+        ], $activityAt, 'activity:'.$activityId);
 
         return response()->json(['bug' => $this->record(DB::table('bugs')->find($id)), 'attachment' => $attachment], 201);
     }
@@ -472,9 +478,8 @@ class ApiController extends Controller
     public function legacyProofEvents(Request $request, string $bugId): JsonResponse
     {
         /*
-         * Compatibility-only read path for historical records. No blockchain code
-         * runs here. New React screens may keep their existing "Blockchain Proof"
-         * labels while the application itself remains React + Laravel + MySQL only.
+         * Database-backed proof history for the UI. This endpoint does not call
+         * the commented legacy blockchain, wallet, node, or audit-service code.
          */
         if (! Schema::hasTable('bug_blockchain_events')) {
             return response()->json(['events' => []]);
@@ -516,6 +521,7 @@ class ApiController extends Controller
         if (($updates['status'] ?? null) === 'open') {
             $updates['verified_at'] = null;
         }
+        $changedFields = array_keys($updates);
         $updates['updated_at'] = now();
         if (isset($updates['sprint_id']) && $updates['sprint_id'] && ! DB::table('sprints')->where('id', $updates['sprint_id'])->where('org_id', $orgId)->where('project_id', $bug->project_id)->exists()) {
             return response()->json(['message' => 'Sprint not found'], 404);
@@ -525,10 +531,30 @@ class ApiController extends Controller
                 return response()->json(['message' => 'Selected user was not found in this organization.'], 422);
             }
         }
+        $proofAction = 'bug_assignment_changed';
+        if (array_key_exists('status', $updates)) {
+            $proofAction = $bug->status === 'resolved' && $updates['status'] === 'closed'
+                ? 'bug_verified'
+                : ($bug->status === 'resolved' && $updates['status'] === 'in-progress'
+                    ? 'bug_verification_rejected'
+                    : 'bug_status_changed');
+        } elseif (array_key_exists('sprint_id', $updates)) {
+            $proofAction = 'bug_sprint_changed';
+        } elseif (array_key_exists('verification_tester_email', $updates)) {
+            $proofAction = 'bug_verification_tester_changed';
+        }
+
         DB::table('bugs')->where('id', $id)->where('org_id', $orgId)->update($updates);
         $type = array_key_exists('status', $updates) ? (($updates['status'] === 'closed') ? 'verified' : 'status_changed') : 'assigned';
         $actor = $request->attributes->get('blockbug_actor');
-        DB::table('activities')->insert(['id' => $this->id('act-'), 'org_id' => $orgId, 'bug_id' => $id, 'type' => $type, 'user_id' => $actor->id, 'user_name' => $actor->name, 'message' => $type === 'assigned' ? 'Updated bug assignment' : 'Changed status to '.($updates['status'] ?? $bug->status), 'created_at' => now()]);
+        $activityId = $this->id('act-');
+        $activityAt = now();
+        DB::table('activities')->insert(['id' => $activityId, 'org_id' => $orgId, 'bug_id' => $id, 'type' => $type, 'user_id' => $actor->id, 'user_name' => $actor->name, 'message' => $type === 'assigned' ? 'Updated bug assignment' : 'Changed status to '.($updates['status'] ?? $bug->status), 'created_at' => $activityAt]);
+        $this->bugProofRecorder->record($id, $proofAction, $actor->email, [
+            'fromStatus' => $bug->status,
+            'toStatus' => $updates['status'] ?? $bug->status,
+            'fields' => $changedFields,
+        ], $activityAt, 'activity:'.$activityId);
         $this->notify($orgId, 'Bug updated', $bug->title.' was updated', 'bug_updated', 'bug', $id, 'bugs');
         AuditLogger::write($request, 'BUG_UPDATED', 'bug', $id, ['fields' => array_keys($updates)]);
 
@@ -558,8 +584,14 @@ class ApiController extends Controller
         }
         $actor = $request->attributes->get('blockbug_actor');
         $id = $this->id('comment-');
+        $activityId = $this->id('act-');
+        $activityAt = now();
         DB::table('bug_comments')->insert(['id' => $id, 'bug_id' => $bugId, 'parent_comment_id' => $data['parentCommentId'] ?? null, 'user_email' => $actor->email, 'user_name' => $actor->name, 'comment' => $data['comment'], 'created_at' => now()]);
-        DB::table('activities')->insert(['id' => $this->id('act-'), 'org_id' => $orgId, 'bug_id' => $bugId, 'type' => 'commented', 'user_id' => $actor->id, 'user_name' => $actor->name, 'message' => isset($data['parentCommentId']) ? 'Replied to a comment' : 'Added a comment', 'created_at' => now()]);
+        DB::table('activities')->insert(['id' => $activityId, 'org_id' => $orgId, 'bug_id' => $bugId, 'type' => 'commented', 'user_id' => $actor->id, 'user_name' => $actor->name, 'message' => isset($data['parentCommentId']) ? 'Replied to a comment' : 'Added a comment', 'created_at' => $activityAt]);
+        $this->bugProofRecorder->record($bugId, 'bug_commented', $actor->email, [
+            'commentId' => $id,
+            'parentCommentId' => $data['parentCommentId'] ?? null,
+        ], $activityAt, 'activity:'.$activityId);
         $this->notify($orgId, 'Comment on '.strtoupper(substr($bugId, 0, 8)), $actor->name.': '.Str::limit($data['comment'], 90), 'comment_added', 'bug', $bugId, 'bugs');
 
         return response()->json(['comment' => $this->record(DB::table('bug_comments')->find($id))], 201);

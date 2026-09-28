@@ -364,6 +364,14 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
         return 'Bug verified'
       case 'bug_verification_rejected':
         return 'Verification rejected'
+      case 'bug_assignment_changed':
+        return 'Assignment changed'
+      case 'bug_commented':
+        return 'Comment added'
+      case 'bug_sprint_changed':
+        return 'Sprint changed'
+      case 'bug_verification_tester_changed':
+        return 'Verification tester changed'
       default:
         return action.replace(/_/g, ' ')
     }
