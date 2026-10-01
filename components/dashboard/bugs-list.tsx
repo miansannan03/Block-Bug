@@ -7,7 +7,7 @@ import { api, type BlockchainBugEvent, type Bug, type BugAttachment, type Commen
 import { useAuth } from '@/lib/auth-context'
 import { formatDateWithSettings } from '@/lib/system-settings-context'
 import { Badge } from '@/components/ui/badge'
-import { Search, Plus, ArrowLeft, FolderKanban, Rows3, UserRound } from 'lucide-react'
+import { Search, Plus, ArrowLeft, FolderKanban, Rows3, UserRound, Paperclip, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
@@ -65,6 +65,9 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
   const [blockchainEvents, setBlockchainEvents] = useState<BlockchainBugEvent[]>([])
   const [newComment, setNewComment] = useState('')
   const [replyToCommentId, setReplyToCommentId] = useState<string | null>(null)
+  const [commentAttachmentFile, setCommentAttachmentFile] = useState<File | null>(null)
+  const [commentError, setCommentError] = useState('')
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false)
   const [defaults, setDefaults] = useState(bugDefaults)
   const [assignmentValue, setAssignmentValue] = useState('')
   const [verificationTesterValue, setVerificationTesterValue] = useState('')
@@ -87,8 +90,11 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
     selectedBug.verificationTesterEmail === user.email || selectedBug.reportedBy === user.email
   )
   const dialogContentRef = useRef<HTMLDivElement | null>(null)
+  const commentAttachmentInputRef = useRef<HTMLInputElement | null>(null)
 
   const form = useForm<NewBugFormData>({
+    mode: 'onChange',
+    reValidateMode: 'onChange',
     defaultValues: {
       title: '',
       description: '',
@@ -153,6 +159,16 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
     api.getBugBlockchainEvents(selectedBug.id).then(setBlockchainEvents).catch(() => setBlockchainEvents([]))
     api.getProjectSprints(selectedBug.projectId).then(setSelectedBugProjectSprints).catch(() => setSelectedBugProjectSprints([]))
   }, [selectedBug])
+
+  useEffect(() => {
+    setNewComment('')
+    setReplyToCommentId(null)
+    setCommentAttachmentFile(null)
+    setCommentError('')
+    if (commentAttachmentInputRef.current) {
+      commentAttachmentInputRef.current.value = ''
+    }
+  }, [selectedBug?.id])
 
   const selectedProjectIdForNewBug = form.watch('projectId')
 
@@ -472,17 +488,69 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
   }
 
   const submitComment = async () => {
-    if (!selectedBug || !newComment.trim()) return
-    const comment = await api.createComment(selectedBug.id, {
-      comment: newComment,
-      userEmail: user?.email || 'unknown@blockbug.dev',
-      userName: user?.name || 'Unknown User',
-      parentCommentId: replyToCommentId,
-    })
-    setComments(prev => [comment, ...prev])
-    setNewComment('')
-    setReplyToCommentId(null)
-    window.dispatchEvent(new Event('blockbug:notifications-updated'))
+    if (!selectedBug || !newComment.trim() || isSubmittingComment) return
+    setIsSubmittingComment(true)
+    setCommentError('')
+    try {
+      const comment = await api.createComment(selectedBug.id, {
+        comment: newComment.trim(),
+        userEmail: user?.email || 'unknown@blockbug.dev',
+        userName: user?.name || 'Unknown User',
+        parentCommentId: replyToCommentId,
+      }, commentAttachmentFile)
+      setComments(prev => [comment, ...prev])
+      setNewComment('')
+      setReplyToCommentId(null)
+      setCommentAttachmentFile(null)
+      if (commentAttachmentInputRef.current) {
+        commentAttachmentInputRef.current.value = ''
+      }
+      window.dispatchEvent(new Event('blockbug:notifications-updated'))
+    } catch (err) {
+      setCommentError(err instanceof Error ? err.message : 'Could not add the comment')
+    } finally {
+      setIsSubmittingComment(false)
+    }
+  }
+
+  const selectCommentAttachment = (file: File | null) => {
+    if (file && file.size > 10 * 1024 * 1024) {
+      setCommentAttachmentFile(null)
+      setCommentError('The proof attachment must be 10 MB or smaller.')
+      if (commentAttachmentInputRef.current) {
+        commentAttachmentInputRef.current.value = ''
+      }
+      return
+    }
+    setCommentError('')
+    setCommentAttachmentFile(file)
+  }
+
+  const removeCommentAttachment = () => {
+    setCommentAttachmentFile(null)
+    if (commentAttachmentInputRef.current) {
+      commentAttachmentInputRef.current.value = ''
+    }
+  }
+
+  const renderCommentAttachment = (attachment?: BugAttachment | null) => {
+    if (!attachment) return null
+
+    return (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="mt-2 h-auto max-w-full justify-start gap-2 py-2"
+        onClick={() => void api.downloadAttachment(attachment.id, attachment.originalName)}
+      >
+        <Paperclip className="h-4 w-4 shrink-0" />
+        <span className="truncate">{attachment.originalName}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {Math.max(1, Math.round(attachment.fileSize / 1024))} KB
+        </span>
+      </Button>
+    )
   }
 
   const verifyResolvedBug = async (nextStatus: Bug['status']) => {
@@ -559,11 +627,11 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                       {submitError}
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
                     <FormField
                       control={form.control}
                       name="title"
-                      rules={{ required: 'Bug title is required' }}
+                      rules={{ validate: (value) => value.trim().length > 0 || 'Bug title is required' }}
                       render={({ field }) => (
                         <FormItem className="col-span-2">
                           <FormLabel>Bug Title</FormLabel>
@@ -654,6 +722,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                       <FormField
                         control={form.control}
                         name="sprintId"
+                        rules={{ required: 'Sprint selection is required' }}
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Sprint</FormLabel>
@@ -738,7 +807,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                   <FormField
                     control={form.control}
                     name="description"
-                    rules={{ required: 'Bug description is required' }}
+                    rules={{ validate: (value) => value.trim().length > 0 || 'Bug description is required' }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Description</FormLabel>
@@ -757,6 +826,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                   <FormField
                     control={form.control}
                     name="stepsToReproduce"
+                    rules={{ validate: (value) => !!value?.trim() || 'Steps to reproduce are required' }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Steps to Reproduce</FormLabel>
@@ -776,13 +846,14 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                     <FormField
                       control={form.control}
                       name="expectedResult"
+                      rules={{ validate: (value) => !!value?.trim() || 'Expected result is required' }}
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Expected Result</FormLabel>
                           <FormControl>
                             <Textarea
                               placeholder="What should happen..."
-                              className="min-h-[60px]"
+                              className="h-40 min-h-40 resize-none field-sizing-fixed"
                               {...field}
                             />
                           </FormControl>
@@ -794,13 +865,14 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                     <FormField
                       control={form.control}
                       name="actualResult"
+                      rules={{ validate: (value) => !!value?.trim() || 'Actual result is required' }}
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Actual Result</FormLabel>
                           <FormControl>
                             <Textarea
                               placeholder="What actually happens..."
-                              className="min-h-[60px]"
+                              className="h-40 min-h-40 resize-none field-sizing-fixed"
                               {...field}
                             />
                           </FormControl>
@@ -813,6 +885,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                   <FormField
                     control={form.control}
                     name="environment"
+                    rules={{ validate: (value) => !!value?.trim() || 'Environment is required' }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Environment</FormLabel>
@@ -845,7 +918,12 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                     >
                       Cancel
                     </Button>
-                    <Button type="submit">Submit Bug Report</Button>
+                    <Button
+                      type="submit"
+                      disabled={!form.formState.isValid || form.formState.isSubmitting}
+                    >
+                      Submit Bug Report
+                    </Button>
                   </div>
                 </form>
               </Form>
@@ -1001,7 +1079,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                 A quick read on the current stage, urgency, ownership, and timing before you dive into the details.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border border-border/70 bg-background/90 px-4 py-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Status</p>
                 <Badge className={`${getStatusColor(selectedBug.status)} capitalize`}>
@@ -1189,19 +1267,24 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                       className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                     >
                       <option value="">Backlog</option>
-                      {selectedBugProjectSprints.map((sprint) => (
+                      {selectedBugProjectSprints
+                        .filter((sprint) => sprint.status === 'planned' || sprint.status === 'active' || sprint.id === selectedBug.sprintId)
+                        .map((sprint) => (
                         <option key={sprint.id} value={sprint.id}>
                           {sprint.name} ({sprint.status})
                         </option>
-                      ))}
+                        ))}
                     </select>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Move this bug between the backlog and any active or planned sprint in this project.
+                    </p>
                   </div>
                   <Button
                     type="button"
                     onClick={updateSprintAssignment}
                     disabled={isUpdatingSprint || sprintValue === (selectedBug.sprintId || '')}
                   >
-                    {isUpdatingSprint ? 'Saving...' : 'Save Sprint'}
+                    {isUpdatingSprint ? 'Moving...' : 'Change Sprint'}
                   </Button>
                 </div>
                 <div className="flex flex-col gap-3 md:flex-row md:items-end">
@@ -1358,9 +1441,53 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                   value={newComment}
                   onChange={(event) => setNewComment(event.target.value)}
                 />
-                <Button type="button" size="sm" onClick={submitComment}>
-                  {replyToCommentId ? 'Post Reply' : 'Add Comment'}
-                </Button>
+                {commentAttachmentFile && (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Paperclip className="h-4 w-4 shrink-0 text-primary" />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{commentAttachmentFile.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {Math.max(1, Math.round(commentAttachmentFile.size / 1024))} KB proof attachment
+                        </p>
+                      </div>
+                    </div>
+                    <Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={removeCommentAttachment} aria-label="Remove proof attachment">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+                {commentError && (
+                  <p className="text-sm text-destructive">{commentError}</p>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <input
+                      ref={commentAttachmentInputRef}
+                      id="comment-proof-attachment"
+                      type="file"
+                      className="sr-only"
+                      accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.zip,.log"
+                      onChange={(event) => selectCommentAttachment(event.target.files?.[0] || null)}
+                    />
+                    <label
+                      htmlFor="comment-proof-attachment"
+                      className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      Attach proof
+                    </label>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={submitComment}
+                    disabled={!newComment.trim() || isSubmittingComment}
+                  >
+                    {isSubmittingComment ? 'Posting...' : replyToCommentId ? 'Post Reply' : 'Add Comment'}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Optional: image, PDF, text, CSV, ZIP, or log file up to 10 MB.</p>
               </div>
               <div className="space-y-4 rounded-xl border border-border/70 bg-muted/20 p-4">
                 {threadedComments.map((comment) => (
@@ -1376,6 +1503,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                         </Button>
                       </div>
                       <p className="text-sm text-foreground">{comment.comment}</p>
+                      {renderCommentAttachment(comment.attachment)}
                     </div>
                     {comment.replies.length > 0 && (
                       <div className="space-y-3 pl-4">
@@ -1384,6 +1512,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                             <p className="text-sm font-medium text-foreground">{reply.userName}</p>
                             <p className="text-xs text-muted-foreground mb-1">{formatDateWithSettings(reply.createdAt, defaults, true)}</p>
                             <p className="text-sm text-foreground">{reply.comment}</p>
+                            {renderCommentAttachment(reply.attachment)}
                           </div>
                         ))}
                       </div>

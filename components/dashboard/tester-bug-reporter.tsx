@@ -49,6 +49,8 @@ export function TesterBugReporter() {
   const dialogContentRef = useRef<HTMLDivElement | null>(null)
 
   const form = useForm<NewBugFormData>({
+    mode: 'onChange',
+    reValidateMode: 'onChange',
     defaultValues: {
       title: '',
       description: '',
@@ -270,11 +272,11 @@ export function TesterBugReporter() {
                     {submitError}
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="title"
-                    rules={{ required: 'Bug title is required' }}
+                    rules={{ validate: (value) => value.trim().length > 0 || 'Bug title is required' }}
                     render={({ field }) => (
                       <FormItem className="col-span-2">
                         <FormLabel>Bug Title</FormLabel>
@@ -365,7 +367,7 @@ export function TesterBugReporter() {
                 <FormField
                   control={form.control}
                   name="description"
-                  rules={{ required: 'Bug description is required' }}
+                  rules={{ validate: (value) => value.trim().length > 0 || 'Bug description is required' }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Description</FormLabel>
@@ -384,6 +386,7 @@ export function TesterBugReporter() {
                 <FormField
                   control={form.control}
                   name="stepsToReproduce"
+                  rules={{ validate: (value) => !!value?.trim() || 'Steps to reproduce are required' }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Steps to Reproduce</FormLabel>
@@ -403,13 +406,14 @@ export function TesterBugReporter() {
                   <FormField
                     control={form.control}
                     name="expectedResult"
+                    rules={{ validate: (value) => !!value?.trim() || 'Expected result is required' }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Expected Result</FormLabel>
                         <FormControl>
                           <Textarea
                             placeholder="What should happen..."
-                            className="min-h-[60px]"
+                            className="h-40 min-h-40 resize-none field-sizing-fixed"
                             {...field}
                           />
                         </FormControl>
@@ -421,13 +425,14 @@ export function TesterBugReporter() {
                   <FormField
                     control={form.control}
                     name="actualResult"
+                    rules={{ validate: (value) => !!value?.trim() || 'Actual result is required' }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Actual Result</FormLabel>
                         <FormControl>
                           <Textarea
                             placeholder="What actually happens..."
-                            className="min-h-[60px]"
+                            className="h-40 min-h-40 resize-none field-sizing-fixed"
                             {...field}
                           />
                         </FormControl>
@@ -440,6 +445,7 @@ export function TesterBugReporter() {
                 <FormField
                   control={form.control}
                   name="environment"
+                  rules={{ validate: (value) => !!value?.trim() || 'Environment is required' }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Environment</FormLabel>
@@ -472,7 +478,12 @@ export function TesterBugReporter() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit">Submit Bug Report</Button>
+                  <Button
+                    type="submit"
+                    disabled={!form.formState.isValid || form.formState.isSubmitting}
+                  >
+                    Submit Bug Report
+                  </Button>
                 </div>
               </form>
             </Form>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { AlertCircle, CheckCircle2, Mail } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Mail } from 'lucide-react'
 import { api, type Invitation } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,8 @@ export default function AcceptInvitationPage() {
   const [organizationName, setOrganizationName] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmation, setShowConfirmation] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [accepted, setAccepted] = useState(false)
@@ -70,8 +72,24 @@ export default function AcceptInvitationPage() {
               <form onSubmit={submit} className="space-y-4">
                 {invitation.type === 'organization' && <div><label className="mb-2 block text-sm font-medium">Organization name</label><Input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} required /></div>}
                 <div><label className="mb-2 block text-sm font-medium">Your name</label><Input value={name} onChange={(event) => setName(event.target.value)} required /></div>
-                <div><label className="mb-2 block text-sm font-medium">Password</label><Input type="password" minLength={8} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></div>
-                <div><label className="mb-2 block text-sm font-medium">Confirm password</label><Input type="password" minLength={8} autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required /></div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Password</label>
+                  <div className="relative">
+                    <Input className="pr-11" type={showPassword ? 'text' : 'password'} minLength={8} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+                    <button type="button" className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50" aria-label={showPassword ? 'Hide password' : 'Show password'} title={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((visible) => !visible)}>
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Confirm password</label>
+                  <div className="relative">
+                    <Input className="pr-11" type={showConfirmation ? 'text' : 'password'} minLength={8} autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required />
+                    <button type="button" className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50" aria-label={showConfirmation ? 'Hide password confirmation' : 'Show password confirmation'} title={showConfirmation ? 'Hide password confirmation' : 'Show password confirmation'} onClick={() => setShowConfirmation((visible) => !visible)}>
+                      {showConfirmation ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
                 <Button className="w-full" disabled={loading}>{loading ? 'Creating account…' : 'Create Account'}</Button>
               </form>
             </>

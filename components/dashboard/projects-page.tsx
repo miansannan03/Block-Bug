@@ -31,6 +31,8 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
   const [selectedSprintForCompletion, setSelectedSprintForCompletion] = useState<Sprint | null>(null)
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
   const [updatingSprintId, setUpdatingSprintId] = useState<string | null>(null)
+  const [movingBacklogBugId, setMovingBacklogBugId] = useState<string | null>(null)
+  const [backlogSprintSelections, setBacklogSprintSelections] = useState<Record<string, string>>({})
   const [newProject, setNewProject] = useState({ name: '', description: '', key: '' })
   const [newSprint, setNewSprint] = useState({ name: '', goal: '', startDate: '', endDate: '' })
   const [sprints, setSprints] = useState<Sprint[]>([])
@@ -169,6 +171,37 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
     }
   }
 
+  const moveBacklogBugToSprint = async (bug: Bug) => {
+    if (!canManageSprints) return
+    const fallbackSprintId = sprints.find((sprint) => sprint.status === 'active')?.id
+      || sprints.find((sprint) => sprint.status === 'planned')?.id
+      || ''
+    const targetSprintId = backlogSprintSelections[bug.id] || fallbackSprintId
+    if (!targetSprintId) return
+
+    setError('')
+    setMovingBacklogBugId(bug.id)
+    try {
+      const updatedBug = await api.updateBug(bug.id, {
+        sprintId: targetSprintId,
+        actorRole: user?.role,
+        userEmail: user?.email,
+        userName: user?.name,
+      })
+      setBugs((prev) => prev.map((item) => (item.id === updatedBug.id ? updatedBug : item)))
+      setBacklogSprintSelections((prev) => {
+        const next = { ...prev }
+        delete next[bug.id]
+        return next
+      })
+      window.dispatchEvent(new Event('blockbug:notifications-updated'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not move the bug into the sprint')
+    } finally {
+      setMovingBacklogBugId(null)
+    }
+  }
+
   const selectedProjectBugs = useMemo(() => {
     if (!selectedProject) return []
     return bugs.filter((bug) => bug.projectId === selectedProject.id)
@@ -212,6 +245,11 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
   const activeSprint = useMemo(() => sprints.find((sprint) => sprint.status === 'active') ?? null, [sprints])
   const plannedSprints = useMemo(() => sprints.filter((sprint) => sprint.status === 'planned'), [sprints])
   const completedSprints = useMemo(() => sprints.filter((sprint) => sprint.status === 'completed'), [sprints])
+  const availableSprintTargets = useMemo(
+    () => sprints.filter((sprint) => sprint.status === 'active' || sprint.status === 'planned'),
+    [sprints],
+  )
+  const preferredSprintId = activeSprint?.id || plannedSprints[0]?.id || ''
 
   const sprintStats = useMemo(() => {
     return sprints.reduce<Record<string, { total: number; open: number; inProgress: number; resolved: number; closed: number }>>((acc, sprint) => {
@@ -444,6 +482,69 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
               </div>
             </div>
 
+            {canManageSprints && backlogBugs.length > 0 && (
+              <div className="mb-5 rounded-xl border border-border/70 bg-background/90 p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 pb-4">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Move Bugs from Backlog</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Assign backlog bugs to an active or planned sprint without leaving this project.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-600">
+                    {backlogBugs.length} in backlog
+                  </span>
+                </div>
+
+                {availableSprintTargets.length === 0 ? (
+                  <p className="py-5 text-sm text-muted-foreground">
+                    Create a sprint first. Completed and cancelled sprints cannot receive backlog bugs.
+                  </p>
+                ) : (
+                  <div className="max-h-96 space-y-3 overflow-y-auto pt-4 pr-1">
+                    {backlogBugs.map((bug) => {
+                      const selectedSprintId = backlogSprintSelections[bug.id] || preferredSprintId
+                      return (
+                        <div key={bug.id} className="grid gap-3 rounded-lg border border-border/60 bg-muted/10 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.55fr)_auto] lg:items-center">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-foreground">{bug.title}</p>
+                            <div className="mt-1 flex flex-wrap gap-2 text-xs capitalize text-muted-foreground">
+                              <span>{bug.status.replace('-', ' ')}</span>
+                              <span>•</span>
+                              <span>{bug.priority} priority</span>
+                            </div>
+                          </div>
+                          <Select
+                            value={selectedSprintId}
+                            onValueChange={(value) => setBacklogSprintSelections((prev) => ({ ...prev, [bug.id]: value }))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select sprint" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableSprintTargets.map((sprint) => (
+                                <SelectItem key={sprint.id} value={sprint.id}>
+                                  {sprint.name} ({sprint.status})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => void moveBacklogBugToSprint(bug)}
+                            disabled={!selectedSprintId || movingBacklogBugId === bug.id}
+                          >
+                            {movingBacklogBugId === bug.id ? 'Moving...' : 'Move to Sprint'}
+                          </Button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {sprints.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border/70 bg-background/70 px-6 py-10 text-center text-muted-foreground">
                 No sprints exist for this project yet.
@@ -662,6 +763,15 @@ export function ProjectsPage({ initialSelectedProjectId, onNotificationTargetHan
         </Card>
       ) : loading ? (
         <Card className="p-8 border border-border text-muted-foreground">Loading projects...</Card>
+      ) : projects.length === 0 ? (
+        <div className="py-16 text-center">
+          <p className="text-lg font-semibold text-foreground">No projects yet</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {isAdmin
+              ? 'Create your first project to start organizing work, managing sprints, and tracking bugs.'
+              : 'No projects are available yet. Once an admin creates a project, it will appear here.'}
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {projects.map((project) => {

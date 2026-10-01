@@ -446,13 +446,21 @@ class ApiController extends Controller
         return $row;
     }
 
+    private function commentRecord(object $comment, ?object $attachment = null): array
+    {
+        $row = $this->record($comment);
+        $row['attachment'] = $attachment ? $this->attachmentRecord($attachment) : null;
+
+        return $row;
+    }
+
     public function attachments(Request $request, string $bugId): JsonResponse
     {
         $owned = DB::table('bugs')->where('id', $bugId)->where('org_id', $this->orgId($request))->exists();
         if (! $owned) {
             return response()->json(['message' => 'Bug not found'], 404);
         }
-        $rows = DB::table('bug_attachments')->where('bug_id', $bugId)->latest('created_at')->get();
+        $rows = DB::table('bug_attachments')->where('bug_id', $bugId)->whereNull('comment_id')->latest('created_at')->get();
 
         return response()->json(['attachments' => array_map(fn ($row) => $this->attachmentRecord($row), $rows->all())]);
     }
@@ -505,6 +513,11 @@ class ApiController extends Controller
             'verificationTesterEmail' => 'sometimes|nullable|email',
             'sprintId' => 'sometimes|nullable|string',
         ]);
+        $managementFields = ['assignedTo', 'verificationTesterEmail', 'sprintId'];
+        $requiresManagementAccess = collect($managementFields)->contains(fn ($field) => $request->exists($field));
+        if ($requiresManagementAccess && ! in_array($this->actorRole($request), ['admin', 'manager'], true)) {
+            return response()->json(['message' => 'Manager or administrator access is required.'], 403);
+        }
         $map = ['status' => 'status', 'assignedTo' => 'assigned_to', 'verificationTesterEmail' => 'verification_tester_email', 'sprintId' => 'sprint_id'];
         $updates = [];
         foreach ($map as $input => $column) {
@@ -523,8 +536,17 @@ class ApiController extends Controller
         }
         $changedFields = array_keys($updates);
         $updates['updated_at'] = now();
-        if (isset($updates['sprint_id']) && $updates['sprint_id'] && ! DB::table('sprints')->where('id', $updates['sprint_id'])->where('org_id', $orgId)->where('project_id', $bug->project_id)->exists()) {
-            return response()->json(['message' => 'Sprint not found'], 404);
+        $targetSprint = null;
+        if (isset($updates['sprint_id']) && $updates['sprint_id']) {
+            $targetSprint = DB::table('sprints')
+                ->where('id', $updates['sprint_id'])
+                ->where('org_id', $orgId)
+                ->where('project_id', $bug->project_id)
+                ->whereIn('status', ['planned', 'active'])
+                ->first();
+            if (! $targetSprint) {
+                return response()->json(['message' => 'Only a planned or active sprint from this project can be selected.'], 422);
+            }
         }
         foreach (['assigned_to', 'verification_tester_email'] as $column) {
             if (! empty($updates[$column]) && ! DB::table('users')->where('org_id', $orgId)->where('email', $updates[$column])->exists()) {
@@ -544,19 +566,45 @@ class ApiController extends Controller
             $proofAction = 'bug_verification_tester_changed';
         }
 
+        $fromSprintId = $bug->sprint_id ?: null;
+        $toSprintId = array_key_exists('sprint_id', $updates) ? ($updates['sprint_id'] ?: null) : $fromSprintId;
+        $sprintChanged = array_key_exists('sprint_id', $updates) && $fromSprintId !== $toSprintId;
         DB::table('bugs')->where('id', $id)->where('org_id', $orgId)->update($updates);
         $type = array_key_exists('status', $updates) ? (($updates['status'] === 'closed') ? 'verified' : 'status_changed') : 'assigned';
         $actor = $request->attributes->get('blockbug_actor');
+        if ($sprintChanged) {
+            DB::table('sprint_bug_history')->insert([
+                'id' => $this->id('move-'),
+                'org_id' => $orgId,
+                'bug_id' => $id,
+                'from_sprint_id' => $fromSprintId,
+                'to_sprint_id' => $toSprintId,
+                'moved_by' => $actor->email,
+                'reason' => 'manual_sprint_change',
+                'moved_at' => now(),
+            ]);
+        }
         $activityId = $this->id('act-');
         $activityAt = now();
-        DB::table('activities')->insert(['id' => $activityId, 'org_id' => $orgId, 'bug_id' => $id, 'type' => $type, 'user_id' => $actor->id, 'user_name' => $actor->name, 'message' => $type === 'assigned' ? 'Updated bug assignment' : 'Changed status to '.($updates['status'] ?? $bug->status), 'created_at' => $activityAt]);
+        $activityMessage = $type === 'assigned' ? 'Updated bug assignment' : 'Changed status to '.($updates['status'] ?? $bug->status);
+        if ($sprintChanged) {
+            $fromSprintName = $fromSprintId ? DB::table('sprints')->where('id', $fromSprintId)->value('name') : 'Backlog';
+            $activityMessage = 'Moved bug from '.($fromSprintName ?: 'Backlog').' to '.($targetSprint?->name ?: 'Backlog');
+        }
+        DB::table('activities')->insert(['id' => $activityId, 'org_id' => $orgId, 'bug_id' => $id, 'type' => $type, 'user_id' => $actor->id, 'user_name' => $actor->name, 'message' => $activityMessage, 'created_at' => $activityAt]);
         $this->bugProofRecorder->record($id, $proofAction, $actor->email, [
             'fromStatus' => $bug->status,
             'toStatus' => $updates['status'] ?? $bug->status,
+            'fromSprintId' => $fromSprintId,
+            'toSprintId' => $toSprintId,
             'fields' => $changedFields,
         ], $activityAt, 'activity:'.$activityId);
         $this->notify($orgId, 'Bug updated', $bug->title.' was updated', 'bug_updated', 'bug', $id, 'bugs');
-        AuditLogger::write($request, 'BUG_UPDATED', 'bug', $id, ['fields' => array_keys($updates)]);
+        AuditLogger::write($request, 'BUG_UPDATED', 'bug', $id, [
+            'fields' => array_keys($updates),
+            'fromSprintId' => $fromSprintId,
+            'toSprintId' => $toSprintId,
+        ]);
 
         return response()->json(['bug' => $this->record(DB::table('bugs')->where('id', $id)->where('org_id', $orgId)->first())]);
     }
@@ -568,12 +616,28 @@ class ApiController extends Controller
             return response()->json(['message' => 'Bug not found'], 404);
         }
 
-        return response()->json(['comments' => $this->records(DB::table('bug_comments')->where('bug_id', $bugId)->oldest('created_at')->get())]);
+        $comments = DB::table('bug_comments')->where('bug_id', $bugId)->oldest('created_at')->get();
+        $attachments = DB::table('bug_attachments')
+            ->where('bug_id', $bugId)
+            ->whereNotNull('comment_id')
+            ->whereIn('comment_id', $comments->pluck('id'))
+            ->get()
+            ->keyBy('comment_id');
+
+        $records = $comments->map(
+            fn ($comment) => $this->commentRecord($comment, $attachments->get($comment->id))
+        )->all();
+
+        return response()->json(['comments' => $records]);
     }
 
     public function createComment(Request $request, string $bugId): JsonResponse
     {
-        $data = $request->validate(['comment' => 'required|string', 'parentCommentId' => 'nullable|string']);
+        $data = $request->validate([
+            'comment' => 'required|string',
+            'parentCommentId' => 'nullable|string',
+            'attachment' => 'nullable|file|max:10240|mimetypes:image/jpeg,image/png,image/gif,image/webp,application/pdf,text/plain,text/csv,application/zip,application/x-zip-compressed',
+        ]);
         $orgId = $this->orgId($request);
         $bug = DB::table('bugs')->where('id', $bugId)->where('org_id', $orgId)->first();
         if (! $bug) {
@@ -587,14 +651,39 @@ class ApiController extends Controller
         $activityId = $this->id('act-');
         $activityAt = now();
         DB::table('bug_comments')->insert(['id' => $id, 'bug_id' => $bugId, 'parent_comment_id' => $data['parentCommentId'] ?? null, 'user_email' => $actor->email, 'user_name' => $actor->name, 'comment' => $data['comment'], 'created_at' => now()]);
+        $attachment = null;
+        if ($request->hasFile('attachment')) {
+            $file = $request->file('attachment');
+            $originalName = $file->getClientOriginalName();
+            $mimeType = $file->getClientMimeType() ?: 'application/octet-stream';
+            $fileSize = $file->getSize();
+            $extension = $file->getClientOriginalExtension();
+            $storedName = $id.'-'.Str::random(8).($extension ? '.'.$extension : '');
+            $filePath = $file->storeAs('bug-attachments', $storedName, 'local');
+            $attachmentId = $this->id('file-');
+            DB::table('bug_attachments')->insert([
+                'id' => $attachmentId,
+                'bug_id' => $bugId,
+                'comment_id' => $id,
+                'original_name' => $originalName,
+                'stored_name' => $storedName,
+                'file_path' => $filePath,
+                'mime_type' => $mimeType,
+                'file_size' => $fileSize,
+                'uploaded_by' => $actor->email,
+                'created_at' => now(),
+            ]);
+            $attachment = DB::table('bug_attachments')->find($attachmentId);
+        }
         DB::table('activities')->insert(['id' => $activityId, 'org_id' => $orgId, 'bug_id' => $bugId, 'type' => 'commented', 'user_id' => $actor->id, 'user_name' => $actor->name, 'message' => isset($data['parentCommentId']) ? 'Replied to a comment' : 'Added a comment', 'created_at' => $activityAt]);
         $this->bugProofRecorder->record($bugId, 'bug_commented', $actor->email, [
             'commentId' => $id,
             'parentCommentId' => $data['parentCommentId'] ?? null,
+            'attachmentId' => $attachment?->id,
         ], $activityAt, 'activity:'.$activityId);
         $this->notify($orgId, 'Comment on '.strtoupper(substr($bugId, 0, 8)), $actor->name.': '.Str::limit($data['comment'], 90), 'comment_added', 'bug', $bugId, 'bugs');
 
-        return response()->json(['comment' => $this->record(DB::table('bug_comments')->find($id))], 201);
+        return response()->json(['comment' => $this->commentRecord(DB::table('bug_comments')->find($id), $attachment)], 201);
     }
 
     public function activities(Request $request): JsonResponse

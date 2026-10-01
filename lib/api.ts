@@ -178,12 +178,14 @@ export interface Comment {
   userEmail: string
   userName: string
   comment: string
+  attachment?: BugAttachment | null
   createdAt: Date
 }
 
 export interface BugAttachment {
   id: string
   bugId: string
+  commentId?: string | null
   originalName: string
   storedName: string
   filePath: string
@@ -379,6 +381,7 @@ function normalizeActivity(activity: any): Activity {
 function normalizeComment(comment: any): Comment {
   return {
     ...comment,
+    attachment: comment.attachment ? normalizeBugAttachment(comment.attachment) : null,
     createdAt: parseDate(comment.createdAt) || new Date(),
   }
 }
@@ -694,10 +697,23 @@ export const api = {
     return data.comments.map(normalizeComment)
   },
 
-  async createComment(bugId: string, payload: { comment: string; userEmail: string; userName: string; parentCommentId?: string | null }) {
+  async createComment(
+    bugId: string,
+    payload: { comment: string; userEmail: string; userName: string; parentCommentId?: string | null },
+    attachment?: File | null,
+  ) {
+    const body = new FormData()
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        body.append(key, String(value))
+      }
+    })
+    if (attachment) {
+      body.append('attachment', attachment)
+    }
     const data = await request<{ comment: any }>(`/bugs/${bugId}/comments`, {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body,
     })
     return normalizeComment(data.comment)
   },
