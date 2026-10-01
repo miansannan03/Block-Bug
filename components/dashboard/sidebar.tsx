@@ -36,7 +36,7 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
     }
 
     const baseItems = [
-      { id: 'overview', label: 'Overview', icon: Home },
+      { id: 'overview', label: 'Dashboard', icon: Home },
       { id: 'bugs', label: 'Bug Reports', icon: Bug },
       { id: 'reports', label: 'Analytics', icon: BarChart3 },
       { id: 'projects', label: 'Projects', icon: FolderOpen },

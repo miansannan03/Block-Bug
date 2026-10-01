@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class PlatformSecurityTest extends TestCase
@@ -116,6 +118,72 @@ class PlatformSecurityTest extends TestCase
             ->assertUnprocessable();
     }
 
+    public function test_comment_can_include_a_downloadable_proof_attachment(): void
+    {
+        Storage::fake('local');
+        $this->createOrganization('org-a', 'Alpha');
+        $this->createUser('admin-a', 'org-a', 'admin@alpha.test', 'admin');
+        $this->createProject('project-a', 'org-a', 'ALPHA');
+        $this->createBug('bug-a', 'org-a', 'project-a');
+        $token = $this->login('admin@alpha.test');
+
+        $response = $this->withToken($token)->post('/api/bugs/bug-a/comments', [
+            'comment' => 'The fix is confirmed by the attached proof.',
+            'attachment' => UploadedFile::fake()->create('proof.txt', 2, 'text/plain'),
+        ])->assertCreated()
+            ->assertJsonPath('comment.comment', 'The fix is confirmed by the attached proof.')
+            ->assertJsonPath('comment.attachment.originalName', 'proof.txt');
+
+        $commentId = $response->json('comment.id');
+        $attachment = DB::table('bug_attachments')->where('comment_id', $commentId)->first();
+        $this->assertNotNull($attachment);
+        Storage::disk('local')->assertExists($attachment->file_path);
+
+        $this->withToken($token)->getJson('/api/bugs/bug-a/comments')
+            ->assertOk()
+            ->assertJsonPath('comments.0.attachment.originalName', 'proof.txt');
+        $this->withToken($token)->getJson('/api/bugs/bug-a/attachments')
+            ->assertOk()
+            ->assertJsonCount(0, 'attachments');
+        $this->withToken($token)->get('/api/attachments/'.$attachment->id.'/download')->assertOk();
+    }
+
+    public function test_only_admins_and_managers_can_move_bugs_to_open_sprints(): void
+    {
+        $this->createOrganization('org-a', 'Alpha');
+        $this->createUser('admin-a', 'org-a', 'admin@alpha.test', 'admin');
+        $this->createUser('manager-a', 'org-a', 'manager@alpha.test', 'manager');
+        $this->createUser('tester-a', 'org-a', 'tester@alpha.test', 'tester');
+        $this->createProject('project-a', 'org-a', 'ALPHA');
+        $this->createBug('bug-a', 'org-a', 'project-a');
+        $this->createBug('bug-b', 'org-a', 'project-a');
+        $this->createBug('bug-c', 'org-a', 'project-a');
+        $this->createSprint('sprint-active', 'org-a', 'project-a', 'active');
+        $this->createSprint('sprint-completed', 'org-a', 'project-a', 'completed');
+
+        $this->withToken($this->login('admin@alpha.test'))
+            ->patchJson('/api/bugs/bug-a', ['sprintId' => 'sprint-active'])
+            ->assertOk()
+            ->assertJsonPath('bug.sprintId', 'sprint-active');
+        $this->withToken($this->login('manager@alpha.test'))
+            ->patchJson('/api/bugs/bug-b', ['sprintId' => 'sprint-active'])
+            ->assertOk()
+            ->assertJsonPath('bug.sprintId', 'sprint-active');
+        $this->withToken($this->login('tester@alpha.test'))
+            ->patchJson('/api/bugs/bug-c', ['sprintId' => 'sprint-active'])
+            ->assertForbidden();
+        $this->withToken($this->login('admin@alpha.test'))
+            ->patchJson('/api/bugs/bug-c', ['sprintId' => 'sprint-completed'])
+            ->assertUnprocessable();
+
+        $this->assertDatabaseHas('sprint_bug_history', [
+            'bug_id' => 'bug-a',
+            'from_sprint_id' => null,
+            'to_sprint_id' => 'sprint-active',
+            'reason' => 'manual_sprint_change',
+        ]);
+    }
+
     public function test_super_admin_can_manage_organizations_and_view_aggregate_logs(): void
     {
         $this->createSuperAdmin();
@@ -185,6 +253,21 @@ class PlatformSecurityTest extends TestCase
     private function createBug(string $id, string $org, string $project): void
     {
         DB::table('bugs')->insert(['id' => $id, 'org_id' => $org, 'title' => 'Private bug', 'description' => 'Private', 'status' => 'open', 'priority' => 'high', 'severity' => 'major', 'project_id' => $project, 'reported_by' => 'admin@beta.test', 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function createSprint(string $id, string $org, string $project, string $status): void
+    {
+        DB::table('sprints')->insert([
+            'id' => $id,
+            'org_id' => $org,
+            'project_id' => $project,
+            'name' => $id,
+            'status' => $status,
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addWeek()->toDateString(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function login(string $email): string

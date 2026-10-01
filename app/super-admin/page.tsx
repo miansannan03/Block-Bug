@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, Building2, Bug, Copy, LayoutDashboard, RefreshCw, Shield, Users } from 'lucide-react'
+import { Activity, AlertTriangle, Building2, Bug, Check, Copy, LayoutDashboard, RefreshCw, Shield, Users } from 'lucide-react'
 import { api, type ApplicationErrorLog, type AuditLog, type Invitation, type PlatformMetrics, type PlatformOrganization } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,10 @@ export default function SuperAdminPage() {
   const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [refreshConfirmed, setRefreshConfirmed] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
+  const [linkGenerated, setLinkGenerated] = useState(false)
+  const [invitationAction, setInvitationAction] = useState<{ id: string; phase: 'regenerating' | 'regenerated' | 'revoking' | 'revoked' } | null>(null)
+  const [organizationAction, setOrganizationAction] = useState<{ id: string; phase: 'updating' | 'activated' | 'suspended' } | null>(null)
   const refreshFeedbackTimer = useRef<number | null>(null)
 
   const load = async () => {
@@ -92,6 +96,15 @@ export default function SuperAdminPage() {
     }
   }
 
+  const copyGeneratedLink = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedLink)
+      setLinkCopied(true)
+    } catch {
+      setError('The invitation link could not be copied. Please select and copy it manually.')
+    }
+  }
+
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'super_admin')) navigate('/login', { replace: true })
     if (user?.role === 'super_admin') void load()
@@ -101,11 +114,37 @@ export default function SuperAdminPage() {
     if (refreshFeedbackTimer.current !== null) window.clearTimeout(refreshFeedbackTimer.current)
   }, [])
 
+  useEffect(() => {
+    if (!linkCopied) return
+    const timer = window.setTimeout(() => setLinkCopied(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [linkCopied])
+
+  useEffect(() => {
+    if (!linkGenerated) return
+    const timer = window.setTimeout(() => setLinkGenerated(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [linkGenerated])
+
+  useEffect(() => {
+    if (!invitationAction || !['regenerated', 'revoked'].includes(invitationAction.phase)) return
+    const timer = window.setTimeout(() => setInvitationAction(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [invitationAction])
+
+  useEffect(() => {
+    if (!organizationAction || organizationAction.phase === 'updating') return
+    const timer = window.setTimeout(() => setOrganizationAction(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [organizationAction])
+
   const createInvitation = async (event: React.FormEvent) => {
-    event.preventDefault(); setBusy(true); setError('')
+    event.preventDefault(); setBusy(true); setLinkGenerated(false); setError('')
     try {
       const result = await api.inviteOrganization(email)
       setGeneratedLink(`${window.location.origin}/i#${result.token}`)
+      setLinkCopied(false)
+      setLinkGenerated(true)
       setEmail('')
       await load()
     } catch (err) { setError(err instanceof Error ? err.message : 'Invitation could not be created.') } finally { setBusy(false) }
@@ -113,13 +152,48 @@ export default function SuperAdminPage() {
 
   const regenerate = async (id: string) => {
     setBusy(true)
-    try { const result = await api.regenerateInvitation(id, true); setGeneratedLink(`${window.location.origin}/i#${result.token}`); await load() } finally { setBusy(false) }
+    setInvitationAction({ id, phase: 'regenerating' })
+    setError('')
+    try {
+      const result = await api.regenerateInvitation(id, true)
+      setGeneratedLink(`${window.location.origin}/i#${result.token}`)
+      setLinkCopied(false)
+      await load()
+      setInvitationAction({ id, phase: 'regenerated' })
+    } catch (err) {
+      setInvitationAction(null)
+      setError(err instanceof Error ? err.message : 'The invitation could not be regenerated.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revoke = async (id: string) => {
+    setInvitationAction({ id, phase: 'revoking' })
+    setError('')
+    try {
+      await api.revokeInvitation(id, true)
+      await load()
+      setInvitationAction({ id, phase: 'revoked' })
+    } catch (err) {
+      setInvitationAction(null)
+      setError(err instanceof Error ? err.message : 'The invitation could not be revoked.')
+    }
   }
 
   const setStatus = async (organization: PlatformOrganization) => {
     const next = organization.status === 'active' ? 'inactive' : 'active'
     if (!window.confirm(`${next === 'inactive' ? 'Suspend' : 'Reactivate'} ${organization.name}?`)) return
-    await api.updateOrganizationStatus(organization.id, next); await load()
+    setOrganizationAction({ id: organization.id, phase: 'updating' })
+    setError('')
+    try {
+      await api.updateOrganizationStatus(organization.id, next)
+      await load()
+      setOrganizationAction({ id: organization.id, phase: next === 'active' ? 'activated' : 'suspended' })
+    } catch (err) {
+      setOrganizationAction(null)
+      setError(err instanceof Error ? err.message : 'The organization status could not be updated.')
+    }
   }
 
   const remove = async (organization: PlatformOrganization) => {
@@ -150,8 +224,83 @@ export default function SuperAdminPage() {
           <div className="mb-7 flex items-start justify-between"><div><h1 className="text-3xl font-bold capitalize">{section === 'audit' ? 'Audit logs' : section === 'errors' ? 'Error logs' : section}</h1><p className="mt-1 text-muted-foreground">Platform-wide administration and high-level visibility.</p></div><Button variant="outline" size="sm" disabled={refreshing} aria-live="polite" onClick={() => void refreshCurrentSection()}><RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />{refreshing ? 'Refreshing...' : refreshConfirmed ? 'Updated' : 'Refresh'}</Button></div>
           {error && <Card className="mb-5 border-destructive p-4 text-sm text-destructive">{error}</Card>}
           {section === 'overview' && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{metricCards.map(([label, value, Icon]) => <Card key={label} className="p-5"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">{label}</span><Icon className="h-5 w-5 text-primary" /></div><p className="mt-3 text-3xl font-bold">{value}</p></Card>)}</div>}
-          {section === 'organizations' && <Card className="overflow-x-auto"><table className="w-full text-sm"><thead className="border-b bg-muted/30 text-left"><tr>{['Organization', 'Primary admin', 'Users', 'Status', 'Created', 'Last activity', 'Actions'].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead><tbody>{organizations.map((org) => <tr key={org.id} className="border-b last:border-0"><td className="px-4 py-4 font-medium">{org.name}</td><td className="px-4 py-4 text-muted-foreground">{org.primaryAdminEmail || '—'}</td><td className="px-4 py-4">{org.userCount}</td><td className="px-4 py-4"><Badge variant={org.status === 'active' ? 'default' : 'secondary'}>{org.status}</Badge></td><td className="px-4 py-4">{new Date(org.createdAt).toLocaleDateString()}</td><td className="px-4 py-4">{org.lastActivityAt ? new Date(org.lastActivityAt).toLocaleString() : '—'}</td><td className="px-4 py-4"><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void setStatus(org)}>{org.status === 'active' ? 'Suspend' : 'Activate'}</Button><Button size="sm" variant="destructive" onClick={() => void remove(org)}>Delete</Button></div></td></tr>)}</tbody></table>{organizations.length === 0 && <p className="p-8 text-center text-muted-foreground">No organizations yet.</p>}</Card>}
-          {section === 'invitations' && <div className="space-y-5"><Card className="p-6"><h2 className="text-lg font-semibold">Invite organization</h2><p className="mt-1 mb-4 text-sm text-muted-foreground">Enter the first Organization Admin’s email. Share the generated link manually.</p><form className="flex gap-3" onSubmit={createInvitation}><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@company.com" required /><Button disabled={busy}>Generate link</Button></form>{generatedLink && <div className="mt-4 flex gap-2 rounded-lg border bg-muted/30 p-3"><code className="min-w-0 flex-1 truncate text-xs">{generatedLink}</code><Button size="sm" variant="outline" onClick={() => navigator.clipboard.writeText(generatedLink)}><Copy className="mr-2 h-4 w-4" />Copy Link</Button></div>}</Card><Card className="overflow-x-auto"><table className="w-full text-sm"><thead className="border-b bg-muted/30 text-left"><tr>{['Email', 'Status', 'Expires', 'Created', 'Actions'].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead><tbody>{invitations.map((invite) => <tr key={invite.id} className="border-b last:border-0"><td className="px-4 py-4">{invite.email}</td><td className="px-4 py-4"><Badge variant="secondary">{invite.status}</Badge></td><td className="px-4 py-4">{new Date(invite.expiresAt).toLocaleString()}</td><td className="px-4 py-4">{new Date(invite.createdAt).toLocaleString()}</td><td className="px-4 py-4"><div className="flex gap-2"><Button size="sm" variant="outline" disabled={invite.status === 'accepted' || busy} onClick={() => void regenerate(invite.id)}>Regenerate</Button><Button size="sm" variant="outline" disabled={invite.status !== 'pending'} onClick={async () => { await api.revokeInvitation(invite.id, true); await load() }}>Revoke</Button></div></td></tr>)}</tbody></table></Card></div>}
+          {section === 'organizations' && (
+            <Card className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/30 text-left"><tr>{['Organization', 'Primary admin', 'Users', 'Status', 'Created', 'Last activity', 'Actions'].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
+                <tbody>{organizations.map((org) => {
+                  const action = organizationAction?.id === org.id ? organizationAction.phase : null
+                  return (
+                    <tr key={org.id} className="border-b last:border-0">
+                      <td className="px-4 py-4 font-medium">{org.name}</td>
+                      <td className="px-4 py-4 text-muted-foreground">{org.primaryAdminEmail || '—'}</td>
+                      <td className="px-4 py-4">{org.userCount}</td>
+                      <td className="px-4 py-4"><Badge variant={org.status === 'active' ? 'default' : 'secondary'}>{org.status}</Badge></td>
+                      <td className="px-4 py-4">{new Date(org.createdAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-4">{org.lastActivityAt ? new Date(org.lastActivityAt).toLocaleString() : '—'}</td>
+                      <td className="px-4 py-4">
+                        <div className="flex gap-2">
+                          <Button className="action-feedback-button" data-complete={action && action !== 'updating' ? 'true' : undefined} size="sm" variant="outline" disabled={action === 'updating'} onClick={() => void setStatus(org)}>
+                            {action && action !== 'updating' && <Check className="h-4 w-4" />}
+                            {action === 'updating'
+                              ? org.status === 'active' ? 'Suspending…' : 'Activating…'
+                              : action === 'suspended' ? 'Suspended!' : action === 'activated' ? 'Activated!' : org.status === 'active' ? 'Suspend' : 'Activate'}
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => void remove(org)}>Delete</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}</tbody>
+              </table>
+              {organizations.length === 0 && <p className="p-8 text-center text-muted-foreground">No organizations yet.</p>}
+            </Card>
+          )}
+          {section === 'invitations' && (
+            <div className="space-y-5">
+              <Card className="p-6">
+                <h2 className="text-lg font-semibold">Invite organization</h2>
+                <p className="mt-1 mb-4 text-sm text-muted-foreground">Enter the first Organization Admin’s email. Share the generated link manually.</p>
+                <form className="flex gap-3" onSubmit={createInvitation}>
+                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@company.com" required />
+                  <Button className="action-feedback-button" data-complete={linkGenerated ? 'true' : undefined} disabled={busy} aria-live="polite">
+                    {linkGenerated && <Check className="h-4 w-4" />}
+                    {busy && !invitationAction ? 'Generating…' : linkGenerated ? 'Generated!' : 'Generate link'}
+                  </Button>
+                </form>
+                {generatedLink && <div className="mt-4 flex gap-2 rounded-lg border bg-muted/30 p-3"><code className="min-w-0 flex-1 truncate text-xs">{generatedLink}</code><Button type="button" size="sm" variant="outline" aria-live="polite" onClick={() => void copyGeneratedLink()}>{linkCopied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}{linkCopied ? 'Copied!' : 'Copy Link'}</Button></div>}
+              </Card>
+              <Card className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-muted/30 text-left"><tr>{['Email', 'Status', 'Expires', 'Created', 'Actions'].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
+                  <tbody>{invitations.map((invite) => {
+                    const action = invitationAction?.id === invite.id ? invitationAction.phase : null
+                    const actionRunning = action === 'regenerating' || action === 'revoking'
+                    return (
+                      <tr key={invite.id} className="border-b last:border-0">
+                        <td className="px-4 py-4">{invite.email}</td>
+                        <td className="px-4 py-4"><Badge variant="secondary">{invite.status}</Badge></td>
+                        <td className="px-4 py-4">{new Date(invite.expiresAt).toLocaleString()}</td>
+                        <td className="px-4 py-4">{new Date(invite.createdAt).toLocaleString()}</td>
+                        <td className="px-4 py-4">
+                          <div className="flex gap-2">
+                            <Button className="action-feedback-button" data-complete={action === 'regenerated' ? 'true' : undefined} size="sm" variant="outline" disabled={invite.status === 'accepted' || busy || actionRunning} onClick={() => void regenerate(invite.id)}>
+                              {action === 'regenerated' && <Check className="h-4 w-4" />}
+                              {action === 'regenerating' ? 'Regenerating…' : action === 'regenerated' ? 'Regenerated!' : 'Regenerate'}
+                            </Button>
+                            <Button className="action-feedback-button" data-complete={action === 'revoked' ? 'true' : undefined} size="sm" variant="outline" disabled={invite.status !== 'pending' || actionRunning || action === 'revoked'} onClick={() => void revoke(invite.id)}>
+                              {action === 'revoked' && <Check className="h-4 w-4" />}
+                              {action === 'revoking' ? 'Revoking…' : action === 'revoked' ? 'Revoked!' : 'Revoke'}
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}</tbody>
+                </table>
+              </Card>
+            </div>
+          )}
           {section === 'audit' && <LogTable logs={auditLogs} />}
           {section === 'errors' && <Card className="overflow-x-auto"><table className="w-full text-sm"><thead className="border-b bg-muted/30 text-left"><tr>{['Time', 'Level', 'Module', 'Status', 'Message', 'Request ID'].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead><tbody>{errorLogs.map((log) => <tr key={log.id} className="border-b last:border-0"><td className="px-4 py-4 whitespace-nowrap">{new Date(log.createdAt).toLocaleString()}</td><td className="px-4 py-4"><Badge variant="destructive">{log.level}</Badge></td><td className="px-4 py-4">{log.module || '—'}</td><td className="px-4 py-4">{log.httpStatus || '—'}</td><td className="max-w-sm truncate px-4 py-4" title={log.message}>{log.message}</td><td className="px-4 py-4 font-mono text-xs">{log.requestId || '—'}</td></tr>)}</tbody></table>{errorLogs.length === 0 && <p className="p-8 text-center text-muted-foreground">No application errors recorded.</p>}</Card>}
         </main>

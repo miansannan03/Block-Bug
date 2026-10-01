@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api, type Invitation, type RoleDefinition, type User, type UserRole } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
-import { Copy, Shield, Users } from 'lucide-react'
+import { Check, Copy, Shield, Users } from 'lucide-react'
 
 const roleColors: Record<string, string> = {
   admin: 'bg-red-100 text-red-800',
@@ -29,6 +29,10 @@ export function TeamPage() {
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [isCreatingMember, setIsCreatingMember] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
+  const [linkGenerated, setLinkGenerated] = useState(false)
+  const [invitationAction, setInvitationAction] = useState<{ id: string; phase: 'regenerating' | 'regenerated' | 'revoking' | 'revoked' } | null>(null)
+  const [memberAction, setMemberAction] = useState<{ id: string; phase: 'updating' | 'activated' | 'deactivated' } | null>(null)
   const isAdmin = user?.role === 'admin'
   const visibleTeamMembers = isAdmin ? teamMembers : teamMembers.filter((member) => member.role !== 'admin')
 
@@ -42,10 +46,84 @@ export function TeamPage() {
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load team'))
   }, [])
 
+  useEffect(() => {
+    if (!linkCopied) return
+    const timer = window.setTimeout(() => setLinkCopied(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [linkCopied])
+
+  useEffect(() => {
+    if (!linkGenerated) return
+    const timer = window.setTimeout(() => setLinkGenerated(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [linkGenerated])
+
+  useEffect(() => {
+    if (!invitationAction || !['regenerated', 'revoked'].includes(invitationAction.phase)) return
+    const timer = window.setTimeout(() => setInvitationAction(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [invitationAction])
+
+  useEffect(() => {
+    if (!memberAction || memberAction.phase === 'updating') return
+    const timer = window.setTimeout(() => setMemberAction(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [memberAction])
+
+  const copyGeneratedLink = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedLink)
+      setLinkCopied(true)
+    } catch {
+      setError('The invitation link could not be copied. Please select and copy it manually.')
+    }
+  }
+
   const updateMember = async (member: User, updates: Partial<Pick<User, 'role' | 'status'>>) => {
     if (!isAdmin) return
     const { user: updatedUser } = await api.updateUser(member.id, { ...updates, actorRole: user?.role })
     setTeamMembers(prev => prev.map(item => item.id === updatedUser.id ? updatedUser : item))
+  }
+
+  const toggleMemberStatus = async (member: User) => {
+    const nextStatus = member.status === 'active' ? 'inactive' : 'active'
+    setMemberAction({ id: member.id, phase: 'updating' })
+    setError('')
+    try {
+      await updateMember(member, { status: nextStatus })
+      setMemberAction({ id: member.id, phase: nextStatus === 'active' ? 'activated' : 'deactivated' })
+    } catch (err) {
+      setMemberAction(null)
+      setError(err instanceof Error ? err.message : 'The member status could not be updated.')
+    }
+  }
+
+  const regenerateInvitation = async (id: string) => {
+    setInvitationAction({ id, phase: 'regenerating' })
+    setError('')
+    try {
+      const result = await api.regenerateInvitation(id)
+      setGeneratedLink(`${window.location.origin}/i#${result.token}`)
+      setLinkCopied(false)
+      setInvitations((prev) => prev.map((item) => item.id === id ? result.invitation : item))
+      setInvitationAction({ id, phase: 'regenerated' })
+    } catch (err) {
+      setInvitationAction(null)
+      setError(err instanceof Error ? err.message : 'The invitation could not be regenerated.')
+    }
+  }
+
+  const revokeInvitation = async (id: string) => {
+    setInvitationAction({ id, phase: 'revoking' })
+    setError('')
+    try {
+      await api.revokeInvitation(id)
+      setInvitations((prev) => prev.map((item) => item.id === id ? { ...item, status: 'revoked' } : item))
+      setInvitationAction({ id, phase: 'revoked' })
+    } catch (err) {
+      setInvitationAction(null)
+      setError(err instanceof Error ? err.message : 'The invitation could not be revoked.')
+    }
   }
 
   const createMember = async () => {
@@ -62,8 +140,10 @@ export function TeamPage() {
     try {
       const result = await api.inviteUser(newMember.email, newMember.role)
       setGeneratedLink(`${window.location.origin}/i#${result.token}`)
+      setLinkCopied(false)
       setInvitations((prev) => [result.invitation, ...prev])
       setNewMember({ email: '', role: 'tester' })
+      setLinkGenerated(true)
       setSuccessMessage(`Invitation created for ${result.invitation.email}. Copy and share the secure link.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not add team member.')
@@ -103,13 +183,46 @@ export function TeamPage() {
                 <option key={role} value={role}>{role}</option>
               ))}
             </select>
-            <Button type="button" onClick={createMember} disabled={isCreatingMember}>{isCreatingMember ? 'Generating…' : 'Generate Link'}</Button>
+            <Button type="button" className="action-feedback-button" data-complete={linkGenerated ? 'true' : undefined} aria-live="polite" onClick={createMember} disabled={isCreatingMember}>{linkGenerated && <Check className="h-4 w-4" />}{isCreatingMember ? 'Generating…' : linkGenerated ? 'Generated!' : 'Generate Link'}</Button>
           </div>
-          {generatedLink && <div className="mt-4 flex items-center gap-2 rounded-lg border bg-muted/30 p-3"><code className="min-w-0 flex-1 truncate text-xs">{generatedLink}</code><Button size="sm" variant="outline" onClick={() => navigator.clipboard.writeText(generatedLink)}><Copy className="mr-2 h-4 w-4" />Copy Link</Button></div>}
+          {generatedLink && <div className="mt-4 flex items-center gap-2 rounded-lg border bg-muted/30 p-3"><code className="min-w-0 flex-1 truncate text-xs">{generatedLink}</code><Button type="button" size="sm" variant="outline" aria-live="polite" onClick={() => void copyGeneratedLink()}>{linkCopied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}{linkCopied ? 'Copied!' : 'Copy Link'}</Button></div>}
         </Card>
       )}
 
-      {isAdmin && invitations.length > 0 && <Card className="overflow-hidden border border-border"><div className="border-b px-6 py-4"><h3 className="font-semibold">Pending Invitations</h3></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted/40 text-left"><tr><th className="px-6 py-3">Email</th><th className="px-6 py-3">Role</th><th className="px-6 py-3">Status</th><th className="px-6 py-3">Expires</th><th className="px-6 py-3">Actions</th></tr></thead><tbody>{invitations.map((invite) => <tr key={invite.id} className="border-t"><td className="px-6 py-4">{invite.email}</td><td className="px-6 py-4 capitalize">{invite.role === 'admin' ? 'Organization Admin' : invite.role}</td><td className="px-6 py-4 capitalize">{invite.status}</td><td className="px-6 py-4">{new Date(invite.expiresAt).toLocaleString()}</td><td className="px-6 py-4"><div className="flex gap-2"><Button size="sm" variant="outline" disabled={invite.status === 'accepted'} onClick={async () => { const result = await api.regenerateInvitation(invite.id); setGeneratedLink(`${window.location.origin}/i#${result.token}`); setInvitations((prev) => prev.map((item) => item.id === invite.id ? result.invitation : item)) }}>Regenerate</Button><Button size="sm" variant="outline" disabled={invite.status !== 'pending'} onClick={async () => { await api.revokeInvitation(invite.id); setInvitations((prev) => prev.map((item) => item.id === invite.id ? { ...item, status: 'revoked' } : item)) }}>Revoke</Button></div></td></tr>)}</tbody></table></div></Card>}
+      {isAdmin && invitations.length > 0 && (
+        <Card className="overflow-hidden border border-border">
+          <div className="border-b px-6 py-4"><h3 className="font-semibold">Pending Invitations</h3></div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left"><tr><th className="px-6 py-3">Email</th><th className="px-6 py-3">Role</th><th className="px-6 py-3">Status</th><th className="px-6 py-3">Expires</th><th className="px-6 py-3">Actions</th></tr></thead>
+              <tbody>{invitations.map((invite) => {
+                const action = invitationAction?.id === invite.id ? invitationAction.phase : null
+                const actionRunning = action === 'regenerating' || action === 'revoking'
+                return (
+                  <tr key={invite.id} className="border-t">
+                    <td className="px-6 py-4">{invite.email}</td>
+                    <td className="px-6 py-4 capitalize">{invite.role === 'admin' ? 'Organization Admin' : invite.role}</td>
+                    <td className="px-6 py-4 capitalize">{invite.status}</td>
+                    <td className="px-6 py-4">{new Date(invite.expiresAt).toLocaleString()}</td>
+                    <td className="px-6 py-4">
+                      <div className="flex gap-2">
+                        <Button className="action-feedback-button" data-complete={action === 'regenerated' ? 'true' : undefined} size="sm" variant="outline" disabled={invite.status === 'accepted' || actionRunning} onClick={() => void regenerateInvitation(invite.id)}>
+                          {action === 'regenerated' && <Check className="h-4 w-4" />}
+                          {action === 'regenerating' ? 'Regenerating…' : action === 'regenerated' ? 'Regenerated!' : 'Regenerate'}
+                        </Button>
+                        <Button className="action-feedback-button" data-complete={action === 'revoked' ? 'true' : undefined} size="sm" variant="outline" disabled={invite.status !== 'pending' || actionRunning || action === 'revoked'} onClick={() => void revokeInvitation(invite.id)}>
+                          {action === 'revoked' && <Check className="h-4 w-4" />}
+                          {action === 'revoking' ? 'Revoking…' : action === 'revoked' ? 'Revoked!' : 'Revoke'}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}</tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       <Card className="border border-border overflow-hidden">
         <div className="overflow-x-auto">
@@ -158,11 +271,19 @@ export function TeamPage() {
                   <td className="px-6 py-4">
                     {isAdmin ? (
                       <Button
+                        className="action-feedback-button"
+                        data-complete={memberAction?.id === member.id && memberAction.phase !== 'updating' ? 'true' : undefined}
                         variant="outline"
                         size="sm"
-                        onClick={() => updateMember(member, { status: member.status === 'active' ? 'inactive' : 'active' })}
+                        disabled={memberAction?.id === member.id && memberAction.phase === 'updating'}
+                        onClick={() => void toggleMemberStatus(member)}
                       >
-                        {member.status === 'active' ? 'Deactivate' : 'Activate'}
+                        {memberAction?.id === member.id && memberAction.phase !== 'updating' && <Check className="h-4 w-4" />}
+                        {memberAction?.id === member.id
+                          ? memberAction.phase === 'updating'
+                            ? member.status === 'active' ? 'Deactivating…' : 'Activating…'
+                            : memberAction.phase === 'deactivated' ? 'Deactivated!' : 'Activated!'
+                          : member.status === 'active' ? 'Deactivate' : 'Activate'}
                       </Button>
                     ) : (
                       <span className="text-sm text-muted-foreground">View only</span>
