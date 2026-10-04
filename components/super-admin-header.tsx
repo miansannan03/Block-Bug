@@ -7,11 +7,12 @@ import type { User } from '@/lib/auth-context'
 interface SuperAdminHeaderProps {
   user: User | null
   activity: AuditLog[]
+  auditEventCount: number | null
   onOpenAudit: () => void
   onLogout: () => void
 }
 
-export function SuperAdminHeader({ user, activity, onOpenAudit, onLogout }: SuperAdminHeaderProps) {
+export function SuperAdminHeader({ user, activity, auditEventCount, onOpenAudit, onLogout }: SuperAdminHeaderProps) {
   const latestActivity = activity[0]
 
   return (
@@ -30,11 +31,15 @@ export function SuperAdminHeader({ user, activity, onOpenAudit, onLogout }: Supe
         <div className="flex items-center gap-3">
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+            className="neon-soft-control inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             onClick={onOpenAudit}
           >
             <Activity className="h-4 w-4" />
-            {activity.length} audit events
+            <span aria-live="polite" aria-atomic="true">
+              {auditEventCount === null
+                ? 'Loading audit events...'
+                : `${auditEventCount.toLocaleString()} audit event${auditEventCount === 1 ? '' : 's'}`}
+            </span>
           </button>
 
           <div className="flex items-center gap-3 rounded-md border border-border bg-background px-3 py-2">

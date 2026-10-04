@@ -75,6 +75,7 @@ export interface PlatformMetrics {
   totalBugs: number
   totalProjects: number
   pendingInvitations: number
+  totalAuditEvents: number
 }
 
 export interface AuditLog {
@@ -90,6 +91,19 @@ export interface AuditLog {
   requestId?: string | null
   createdAt: string
 }
+
+export type AuditResultFilter = 'all' | 'success' | 'failed'
+
+export interface TablePagination {
+  currentPage: number
+  lastPage: number
+  perPage: number
+  total: number
+  hasNextPage: boolean
+  hasPreviousPage: boolean
+}
+
+export type AuditLogPagination = TablePagination
 
 export interface ApplicationErrorLog {
   id: number
@@ -453,8 +467,9 @@ export const api = {
     return request<{ metrics: PlatformMetrics; recentOrganizations: PlatformOrganization[]; recentActivity: AuditLog[] }>('/super-admin/dashboard')
   },
 
-  async getOrganizations() {
-    return request<{ organizations: PlatformOrganization[] }>('/super-admin/organizations')
+  async getOrganizations(options: { page?: number } = {}) {
+    const query = new URLSearchParams({ page: String(options.page ?? 1) })
+    return request<{ organizations: PlatformOrganization[]; pagination: TablePagination }>(`/super-admin/organizations?${query.toString()}`)
   },
 
   async updateOrganizationStatus(id: string, status: 'active' | 'inactive') {
@@ -465,8 +480,9 @@ export const api = {
     return request<{ ok: boolean }>(`/super-admin/organizations/${id}`, { method: 'DELETE' })
   },
 
-  async getOrganizationInvitations() {
-    return request<{ invitations: Invitation[] }>('/super-admin/invitations')
+  async getOrganizationInvitations(options: { page?: number } = {}) {
+    const query = new URLSearchParams({ page: String(options.page ?? 1) })
+    return request<{ invitations: Invitation[]; pagination: TablePagination }>(`/super-admin/invitations?${query.toString()}`)
   },
 
   async inviteOrganization(email: string) {
@@ -491,8 +507,11 @@ export const api = {
     return request<{ ok: boolean }>(`${base}/${id}/revoke`, { method: 'POST' })
   },
 
-  async getPlatformAuditLogs() {
-    return request<{ logs: AuditLog[] }>('/super-admin/audit-logs')
+  async getPlatformAuditLogs(options: { page?: number; result?: AuditResultFilter } = {}) {
+    const query = new URLSearchParams({ page: String(options.page ?? 1) })
+    if (options.result && options.result !== 'all') query.set('result', options.result)
+
+    return request<{ logs: AuditLog[]; pagination: AuditLogPagination; totalAuditEvents: number }>(`/super-admin/audit-logs?${query.toString()}`)
   },
 
   async getPlatformErrorLogs() {

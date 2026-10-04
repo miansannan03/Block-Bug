@@ -261,7 +261,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
 
   const flowColumns: Array<{ key: Bug['status']; label: string; tone: string; accent: string }> = [
     { key: 'open', label: 'Open', tone: 'bg-red-50/80 dark:bg-red-950/20', accent: 'bg-red-500' },
-    { key: 'in-progress', label: 'In Progress', tone: 'bg-blue-50/80 dark:bg-blue-950/20', accent: 'bg-blue-500' },
+    { key: 'in-progress', label: 'In Progress', tone: 'bg-amber-50/80 dark:bg-amber-950/20', accent: 'bg-amber-500' },
     { key: 'resolved', label: 'Resolved', tone: 'bg-emerald-50/80 dark:bg-emerald-950/20', accent: 'bg-emerald-500' },
     { key: 'closed', label: 'Closed', tone: 'bg-slate-100/80 dark:bg-slate-900/50', accent: 'bg-slate-500' },
   ]
@@ -298,7 +298,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
       case 'open':
         return 'bg-red-100 text-red-800'
       case 'in-progress':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-amber-100 text-amber-800'
       case 'resolved':
         return 'bg-green-100 text-green-800'
       case 'closed':
@@ -611,7 +611,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
         {canCreateBug && (
           <Dialog open={isNewBugDialogOpen} onOpenChange={setIsNewBugDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2 shadow-lg hover:shadow-xl transition-shadow">
+              <Button className="gap-2">
                 <Plus className="w-4 h-4" />
                 New Bug Report
               </Button>
@@ -1008,13 +1008,13 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                 placeholder="Search bugs..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="border-border/80 bg-card text-foreground placeholder:text-muted-foreground pl-10 shadow-sm focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                className="placeholder:text-muted-foreground pl-10"
               />
             </div>
 
             <div className="w-full xl:w-64">
               <Select value={projectFilter} onValueChange={setProjectFilter}>
-                <SelectTrigger className="border-border/80 bg-card text-foreground shadow-sm focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]">
+                <SelectTrigger>
                   <SelectValue placeholder="Filter by project" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1034,10 +1034,9 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                   <button
                     key={status}
                     onClick={() => setStatusFilter(status)}
-                    className={`px-4 py-2 rounded-lg font-medium transition ${
-                      statusFilter === status
-                        ? 'border border-ring bg-card text-foreground shadow-sm ring-[3px] ring-ring/40'
-                        : 'border border-border/70 bg-card text-foreground hover:border-ring/70 hover:bg-muted/80'
+                    aria-pressed={statusFilter === status}
+                    className={`px-4 py-2 rounded-lg font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+                      statusFilter === status ? 'primary-neon-control' : 'neon-soft-control'
                     }`}
                   >
                     {status.charAt(0).toUpperCase() + status.slice(1).replace('-', ' ')}
@@ -1056,7 +1055,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
         <Card className="border border-border/70 bg-card p-8 shadow-sm">
           <button
             onClick={() => setSelectedBug(null)}
-            className="mb-6 inline-flex w-fit max-w-fit shrink-0 items-center gap-2 self-start rounded-2xl border border-primary/20 bg-slate-100 px-4 py-2 text-sm font-semibold text-primary shadow-[0_2px_10px_rgba(37,99,235,0.08)] transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-slate-50 hover:text-primary hover:shadow-[0_6px_18px_rgba(37,99,235,0.12)] dark:bg-slate-900/70 dark:hover:bg-slate-900"
+            className="neon-soft-control mb-6 inline-flex w-fit max-w-fit shrink-0 items-center gap-2 self-start rounded-2xl px-4 py-2 text-sm font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to List
@@ -1261,20 +1260,22 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                 <div className="flex flex-col gap-3 md:flex-row md:items-end">
                   <div className="flex-1">
                     <label className="block text-sm font-semibold text-foreground mb-2">Sprint Placement</label>
-                    <select
-                      value={sprintValue}
-                      onChange={(event) => setSprintValue(event.target.value)}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    <Select
+                      value={sprintValue || BACKLOG_VALUE}
+                      onValueChange={(value) => setSprintValue(value === BACKLOG_VALUE ? '' : value)}
                     >
-                      <option value="">Backlog</option>
-                      {selectedBugProjectSprints
-                        .filter((sprint) => sprint.status === 'planned' || sprint.status === 'active' || sprint.id === selectedBug.sprintId)
-                        .map((sprint) => (
-                        <option key={sprint.id} value={sprint.id}>
-                          {sprint.name} ({sprint.status})
-                        </option>
-                        ))}
-                    </select>
+                      <SelectTrigger aria-label="Sprint Placement" className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={BACKLOG_VALUE}>Backlog</SelectItem>
+                        {selectedBugProjectSprints
+                          .filter((sprint) => sprint.status === 'planned' || sprint.status === 'active' || sprint.id === selectedBug.sprintId)
+                          .map((sprint) => (
+                            <SelectItem key={sprint.id} value={sprint.id}>
+                              {sprint.name} ({sprint.status})
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
                     <p className="mt-2 text-xs text-muted-foreground">
                       Move this bug between the backlog and any active or planned sprint in this project.
                     </p>
@@ -1290,18 +1291,20 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                 <div className="flex flex-col gap-3 md:flex-row md:items-end">
                   <div className="flex-1">
                     <label className="block text-sm font-semibold text-foreground mb-2">Assign Bug</label>
-                    <select
-                      value={assignmentValue}
-                      onChange={(event) => setAssignmentValue(event.target.value)}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    <Select
+                      value={assignmentValue || UNASSIGNED_VALUE}
+                      onValueChange={(value) => setAssignmentValue(value === UNASSIGNED_VALUE ? '' : value)}
                     >
-                      <option value="">Unassigned</option>
-                      {teamMembers.map((member) => (
-                        <option key={member.id} value={member.email}>
-                          {member.name} ({member.role})
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger aria-label="Assign Bug" className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
+                        {teamMembers.map((member) => (
+                          <SelectItem key={member.id} value={member.email}>
+                            {member.name} ({member.role})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <Button
                     type="button"
@@ -1315,18 +1318,20 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                   <div className="flex flex-col gap-3 md:flex-row md:items-end">
                     <div className="flex-1">
                       <label className="block text-sm font-semibold text-foreground mb-2">Assign Tester for Verification</label>
-                      <select
-                        value={verificationTesterValue}
-                        onChange={(event) => setVerificationTesterValue(event.target.value)}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      <Select
+                        value={verificationTesterValue || UNASSIGNED_VALUE}
+                        onValueChange={(value) => setVerificationTesterValue(value === UNASSIGNED_VALUE ? '' : value)}
                       >
-                        <option value="">Unassigned</option>
-                        {testerMembers.map((member) => (
-                          <option key={member.id} value={member.email}>
-                            {member.name} ({member.role})
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger aria-label="Assign Tester for Verification" className="w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
+                          {testerMembers.map((member) => (
+                            <SelectItem key={member.id} value={member.email}>
+                              {member.name} ({member.role})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <Button
                       type="button"
@@ -1472,7 +1477,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                     />
                     <label
                       htmlFor="comment-proof-attachment"
-                      className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
+                      className="neon-soft-control inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-md px-3 text-sm font-medium"
                     >
                       <Paperclip className="h-4 w-4" />
                       Attach proof
@@ -1602,7 +1607,7 @@ export function BugsList({ initialSelectedBugId, onNotificationTargetHandled }: 
                       onClick={() => setSelectedBug(bug)}
                       className="border-b border-border hover:bg-muted/50 hover:border-primary/50 cursor-pointer transition group"
                     >
-                      <td className="px-6 py-4 text-foreground font-medium group-hover:text-primary transition">{bug.title}</td>
+                      <td className="px-6 py-4 text-foreground font-medium group-hover:text-primary-hover transition">{bug.title}</td>
                       <td className="px-6 py-4">
                         <Badge className={`${getStatusColor(bug.status)} capitalize`}>
                           {bug.status.replace('-', ' ')}

@@ -191,12 +191,12 @@ export function DashboardOverview({ onNavigateToPage, onOpenBug }: DashboardOver
         name: 'Bugs Reported',
         data: dashboard?.weeklyBugs.data || [],
         type: 'line',
-        color: '#7c3aed',
+        color: '#7c70f3',
         lineWidth: 3,
         marker: {
           enabled: true,
           radius: 5,
-          fillColor: '#7c3aed',
+          fillColor: '#7c70f3',
           lineColor: '#ffffff',
           lineWidth: 2,
         },
@@ -277,10 +277,10 @@ export function DashboardOverview({ onNavigateToPage, onOpenBug }: DashboardOver
         type: 'pie',
         name: 'Bug Status',
         data: [
-          { name: 'Open', y: stats.open, color: '#8b5cf6' },
-          { name: 'In Progress', y: stats.inProgress, color: '#6366f1' },
-          { name: 'Resolved', y: stats.resolved, color: '#3b82f6' },
-          { name: 'Closed', y: stats.closed, color: '#10b981' },
+          { name: 'Open', y: stats.open, color: '#ef4444' },
+          { name: 'In Progress', y: stats.inProgress, color: '#f59e0b' },
+          { name: 'Resolved', y: stats.resolved, color: '#10b981' },
+          { name: 'Closed', y: stats.closed, color: '#64748b' },
         ],
       },
     ],
@@ -341,8 +341,8 @@ export function DashboardOverview({ onNavigateToPage, onOpenBug }: DashboardOver
 
             <Card className="p-6 border border-border">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-yellow-100 rounded-lg">
-                  <AlertCircle className="w-6 h-6 text-yellow-600" />
+                <div className="p-2 bg-red-100 rounded-lg">
+                  <AlertCircle className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{developerSummary.open}</p>
@@ -353,8 +353,8 @@ export function DashboardOverview({ onNavigateToPage, onOpenBug }: DashboardOver
 
             <Card className="p-6 border border-border">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Clock className="w-6 h-6 text-blue-600" />
+                <div className="p-2 bg-amber-100 rounded-lg">
+                  <Clock className="w-6 h-6 text-amber-600" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{developerSummary.inProgress}</p>
@@ -464,8 +464,8 @@ export function DashboardOverview({ onNavigateToPage, onOpenBug }: DashboardOver
                   <div key={activity.id} className="rounded-xl border border-border/70 bg-muted/10 p-4 shadow-sm transition hover:bg-muted/20">
                     <div className="flex items-start gap-4">
                       <div className={`mt-2 h-2.5 w-2.5 flex-shrink-0 rounded-full ${
-                        activity.type === 'status_changed' ? 'bg-blue-500' :
-                        activity.type === 'assigned' ? 'bg-purple-500' :
+                        activity.type === 'status_changed' ? 'bg-amber-500' :
+                        activity.type === 'assigned' ? 'bg-primary' :
                         activity.type === 'verified' ? 'bg-green-500' :
                         activity.type === 'commented' ? 'bg-orange-500' :
                         'bg-primary'
@@ -555,10 +555,10 @@ export function DashboardOverview({ onNavigateToPage, onOpenBug }: DashboardOver
             <div>
               <p className="text-sm text-muted-foreground">In Progress</p>
               <p className="text-3xl font-bold text-foreground mt-2">{stats.inProgress}</p>
-              <p className="text-xs text-blue-600 mt-2">On track</p>
+              <p className="text-xs text-amber-600 mt-2">On track</p>
             </div>
-            <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center group-hover:bg-blue-500/20 transition">
-              <Clock className="w-6 h-6 text-blue-500" />
+            <div className="w-12 h-12 bg-amber-500/10 rounded-lg flex items-center justify-center group-hover:bg-amber-500/20 transition">
+              <Clock className="w-6 h-6 text-amber-500" />
             </div>
           </div>
         </Card>
@@ -599,8 +599,8 @@ export function DashboardOverview({ onNavigateToPage, onOpenBug }: DashboardOver
               <div key={activity.id} className="flex items-start gap-4 pb-4 border-b border-border last:border-0 hover:bg-muted/30 -mx-2 px-2 py-1 rounded transition">
                 <div className={`w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0 ${
                   activity.type === 'created' ? 'bg-red-500' :
-                  activity.type === 'status_changed' ? 'bg-blue-500' :
-                  activity.type === 'assigned' ? 'bg-purple-500' :
+                  activity.type === 'status_changed' ? 'bg-amber-500' :
+                  activity.type === 'assigned' ? 'bg-primary' :
                   activity.type === 'verified' ? 'bg-green-500' :
                   'bg-primary'
                 }`} />
@@ -632,16 +632,16 @@ export function DashboardOverview({ onNavigateToPage, onOpenBug }: DashboardOver
         <Card className="p-6 border border-border">
           <h3 className="text-lg font-semibold mb-4 text-foreground">Quick Actions</h3>
           <div className="space-y-3">
-            <button onClick={() => onNavigateToPage('bugs')} className="w-full px-4 py-3 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition font-medium text-sm text-left">
+            <button onClick={() => onNavigateToPage('bugs')} className="neon-soft-control w-full px-4 py-3 rounded-lg font-medium text-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
               New bug report ({dashboard?.quickActions.openBugs ?? 0} open)
             </button>
-            <button onClick={() => onNavigateToPage('reports')} className="w-full px-4 py-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 rounded-lg transition font-medium text-sm text-left">
+            <button onClick={() => onNavigateToPage('reports')} className="neon-soft-control neon-amber-control w-full px-4 py-3 rounded-lg font-medium text-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
               View analytics ({dashboard?.quickActions.analyticsReports ?? 0} reports)
             </button>
-            <button onClick={() => onNavigateToPage('bugs')} className="w-full px-4 py-3 bg-green-500/10 hover:bg-green-500/20 text-green-600 rounded-lg transition font-medium text-sm text-left">
+            <button onClick={() => onNavigateToPage('bugs')} className="neon-soft-control neon-green-control w-full px-4 py-3 rounded-lg font-medium text-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
               Verify fixes ({dashboard?.quickActions.pendingVerification ?? 0} pending)
             </button>
-            <button onClick={() => onNavigateToPage('team')} className="w-full px-4 py-3 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 rounded-lg transition font-medium text-sm text-left">
+            <button onClick={() => onNavigateToPage('team')} className="neon-soft-control w-full px-4 py-3 rounded-lg font-medium text-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
               Manage team ({dashboard?.quickActions.teamMembers ?? 0} active)
             </button>
             <div className="pt-3 mt-3 border-t border-border">

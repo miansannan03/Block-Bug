@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Support\AuditLogger;
+use App\Support\TablePagination;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,14 +24,20 @@ class SuperAdminController extends Controller
             'totalBugs' => DB::table('bugs')->count(),
             'totalProjects' => DB::table('projects')->count(),
             'pendingInvitations' => DB::table('invitations')->where('status', 'pending')->count(),
+            'totalAuditEvents' => DB::table('audit_logs')->count(),
         ], 'recentOrganizations' => $this->organizationQuery()->latest('o.created_at')->limit(5)->get()->map(fn ($row) => $this->organizationPayload($row))->values(),
             'recentActivity' => DB::table('audit_logs')->latest('created_at')->limit(10)->get()->map(fn ($row) => $this->auditPayload($row))->values(),
         ]);
     }
 
-    public function organizations(): JsonResponse
+    public function organizations(Request $request): JsonResponse
     {
-        return response()->json(['organizations' => $this->organizationQuery()->orderByDesc('o.created_at')->get()->map(fn ($row) => $this->organizationPayload($row))->values()]);
+        $rows = TablePagination::paginate($this->organizationQuery()->orderByDesc('o.created_at')->orderByDesc('o.id'), $request);
+
+        return response()->json([
+            'organizations' => collect($rows->items())->map(fn ($row) => $this->organizationPayload($row))->values(),
+            'pagination' => TablePagination::metadata($rows),
+        ]);
     }
 
     public function organization(string $id): JsonResponse
@@ -81,6 +88,11 @@ class SuperAdminController extends Controller
 
     public function auditLogs(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'result' => 'sometimes|in:all,success,failed',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
         $query = DB::table('audit_logs');
         if ($request->filled('organization_id')) {
             $query->where('organization_id', $request->query('organization_id'));
@@ -95,7 +107,28 @@ class SuperAdminController extends Controller
             $query->whereDate('created_at', '<=', $request->query('to'));
         }
 
-        return response()->json(['logs' => $query->latest('created_at')->limit(250)->get()->map(fn ($row) => $this->auditPayload($row))->values()]);
+        $result = $validated['result'] ?? 'all';
+        if ($result !== 'all') {
+            $query->where('succeeded', $result === 'success');
+        }
+
+        $logs = $query
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->paginate(25);
+
+        return response()->json([
+            'logs' => collect($logs->items())->map(fn ($row) => $this->auditPayload($row))->values(),
+            'totalAuditEvents' => DB::table('audit_logs')->count(),
+            'pagination' => [
+                'currentPage' => $logs->currentPage(),
+                'lastPage' => $logs->lastPage(),
+                'perPage' => $logs->perPage(),
+                'total' => $logs->total(),
+                'hasNextPage' => $logs->hasMorePages(),
+                'hasPreviousPage' => $logs->currentPage() > 1,
+            ],
+        ]);
     }
 
     public function errorLogs(Request $request): JsonResponse

@@ -5,13 +5,14 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api, type Invitation, type RoleDefinition, type User, type UserRole } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
 import { Check, Copy, Shield, Users } from 'lucide-react'
 
 const roleColors: Record<string, string> = {
   admin: 'bg-red-100 text-red-800',
-  manager: 'bg-blue-100 text-blue-800',
+  manager: 'bg-amber-100 text-amber-800',
   developer: 'bg-purple-100 text-purple-800',
   tester: 'bg-green-100 text-green-800',
 }
@@ -174,15 +175,17 @@ export function TeamPage() {
               value={newMember.email}
               onChange={(event) => setNewMember({ ...newMember, email: event.target.value })}
             />
-            <select
+            <Select
               value={newMember.role}
-              onChange={(event) => setNewMember({ ...newMember, role: event.target.value as Exclude<UserRole, 'super_admin'> })}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm capitalize"
+              onValueChange={(value) => setNewMember({ ...newMember, role: value as Exclude<UserRole, 'super_admin'> })}
             >
-              {(['admin', 'manager', 'developer', 'tester'] as UserRole[]).map((role) => (
-                <option key={role} value={role}>{role}</option>
-              ))}
-            </select>
+              <SelectTrigger aria-label="Invitation role" className="w-full capitalize"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(['admin', 'manager', 'developer', 'tester'] as UserRole[]).map((role) => (
+                  <SelectItem key={role} value={role} className="capitalize">{role}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button type="button" className="action-feedback-button" data-complete={linkGenerated ? 'true' : undefined} aria-live="polite" onClick={createMember} disabled={isCreatingMember}>{linkGenerated && <Check className="h-4 w-4" />}{isCreatingMember ? 'Generating…' : linkGenerated ? 'Generated!' : 'Generate Link'}</Button>
           </div>
           {generatedLink && <div className="mt-4 flex items-center gap-2 rounded-lg border bg-muted/30 p-3"><code className="min-w-0 flex-1 truncate text-xs">{generatedLink}</code><Button type="button" size="sm" variant="outline" aria-live="polite" onClick={() => void copyGeneratedLink()}>{linkCopied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}{linkCopied ? 'Copied!' : 'Copy Link'}</Button></div>}
@@ -210,7 +213,7 @@ export function TeamPage() {
                           {action === 'regenerated' && <Check className="h-4 w-4" />}
                           {action === 'regenerating' ? 'Regenerating…' : action === 'regenerated' ? 'Regenerated!' : 'Regenerate'}
                         </Button>
-                        <Button className="action-feedback-button" data-complete={action === 'revoked' ? 'true' : undefined} size="sm" variant="outline" disabled={invite.status !== 'pending' || actionRunning || action === 'revoked'} onClick={() => void revokeInvitation(invite.id)}>
+                        <Button className="action-feedback-button" data-complete={action === 'revoked' ? 'true' : undefined} size="sm" variant="destructive-outline" disabled={invite.status !== 'pending' || actionRunning || action === 'revoked'} onClick={() => void revokeInvitation(invite.id)}>
                           {action === 'revoked' && <Check className="h-4 w-4" />}
                           {action === 'revoking' ? 'Revoking…' : action === 'revoked' ? 'Revoked!' : 'Revoke'}
                         </Button>
@@ -250,15 +253,17 @@ export function TeamPage() {
                   <td className="px-6 py-4 text-muted-foreground text-sm">{member.email}</td>
                   <td className="px-6 py-4">
                     {isAdmin ? (
-                      <select
+                      <Select
                         value={member.role}
-                        onChange={(event) => updateMember(member, { role: event.target.value as UserRole })}
-                        className="rounded-md border border-border bg-background px-2 py-1 text-sm capitalize"
+                        onValueChange={(value) => updateMember(member, { role: value as UserRole })}
                       >
-                        {['admin', 'manager', 'developer', 'tester'].map((role) => (
-                          <option key={role} value={role}>{role}</option>
-                        ))}
-                      </select>
+                        <SelectTrigger size="sm" aria-label={`Role for ${member.name}`} className="capitalize"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {['admin', 'manager', 'developer', 'tester'].map((role) => (
+                            <SelectItem key={role} value={role} className="capitalize">{role}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     ) : (
                       <Badge className={`${roleColors[member.role]} capitalize`}>{member.role}</Badge>
                     )}
@@ -313,8 +318,8 @@ export function TeamPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="p-6 border border-border">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center">
-              <Users className="w-6 h-6 text-blue-600" />
+            <div className="w-12 h-12 bg-slate-500/10 rounded-lg flex items-center justify-center">
+              <Users className="w-6 h-6 text-slate-600" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase font-semibold">Total Members</p>
@@ -337,8 +342,8 @@ export function TeamPage() {
 
         <Card className="p-6 border border-border">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-purple-500/10 rounded-lg flex items-center justify-center">
-              <Shield className="w-6 h-6 text-purple-600" />
+            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+              <Shield className="w-6 h-6 text-primary" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase font-semibold">Admins</p>

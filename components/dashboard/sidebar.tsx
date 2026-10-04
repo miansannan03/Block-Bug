@@ -81,10 +81,11 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
             <button
               key={item.id}
               onClick={() => onPageChange(item.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition ${
+              aria-pressed={isActive}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                 isActive
-                  ? 'bg-gradient-to-r from-primary/20 to-accent/20 text-primary border border-primary/20 shadow-sm'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                  ? 'neon-soft-control'
+                  : 'neon-ghost-control text-sidebar-foreground'
               }`}
             >
               <Icon className="w-5 h-5" />
@@ -98,7 +99,7 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
       <div className="p-4 border-t border-sidebar-border space-y-3">
         <button
           onClick={() => setTheme(currentTheme === 'dark' ? 'light' : 'dark')}
-          className="w-full flex items-center justify-between rounded-xl border border-sidebar-border/80 bg-sidebar-accent/60 px-3 py-3 hover:bg-sidebar-accent/70 transition"
+          className="neon-soft-control w-full flex items-center justify-between rounded-xl px-3 py-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
           <span className="text-xs font-medium text-sidebar-foreground">Theme</span>
           {currentTheme === 'dark' ? (
@@ -110,7 +111,7 @@ export function Sidebar({ currentPage, onPageChange, userRole }: SidebarProps) {
         
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>{settings.app_name} v1.0</span>
-          <button className="hover:text-primary transition">
+          <button className="hover:text-primary-hover transition">
             <HelpCircle className="w-4 h-4" />
           </button>
         </div>

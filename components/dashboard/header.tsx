@@ -162,7 +162,7 @@ export function Header({ user, onLogout, onNavigateToPage, onOpenNotification }:
               }}
               className="flex items-center gap-3 px-3 py-2 hover:bg-muted rounded-lg transition"
             >
-              <div className="w-8 h-8 bg-gradient-to-br from-primary to-accent rounded-full flex items-center justify-center text-primary-foreground font-semibold text-sm">
+              <div className="primary-neon-surface flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold">
                 {user.name.charAt(0).toUpperCase()}
               </div>
               <div className="text-right hidden sm:block">

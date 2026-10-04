@@ -199,6 +199,135 @@ class PlatformSecurityTest extends TestCase
         $this->withToken($token)->getJson('/api/super-admin/error-logs')->assertOk();
     }
 
+    public function test_platform_audit_total_is_not_limited_by_recent_activity_pagination_or_filters(): void
+    {
+        $this->createSuperAdmin();
+        $token = $this->login('owner@blockbug.test');
+        $initialTotal = DB::table('audit_logs')->count();
+
+        for ($index = 0; $index < 30; $index++) {
+            DB::table('audit_logs')->insert([
+                'action' => 'AUDIT_COUNT_TEST',
+                'succeeded' => $index % 3 !== 0,
+                'created_at' => now(),
+            ]);
+        }
+
+        $total = $initialTotal + 30;
+        $this->withToken($token)->getJson('/api/super-admin/dashboard')
+            ->assertOk()->assertJsonPath('metrics.totalAuditEvents', $total)
+            ->assertJsonCount(10, 'recentActivity');
+        $this->withToken($token)->getJson('/api/super-admin/audit-logs')
+            ->assertOk()->assertJsonPath('totalAuditEvents', $total)
+            ->assertJsonPath('pagination.total', $total)->assertJsonCount(25, 'logs');
+        $this->withToken($token)->getJson('/api/super-admin/audit-logs?page=2')
+            ->assertOk()->assertJsonPath('totalAuditEvents', $total)
+            ->assertJsonCount($total - 25, 'logs');
+
+        foreach (['success' => true, 'failed' => false] as $result => $succeeded) {
+            $filteredTotal = DB::table('audit_logs')->where('succeeded', $succeeded)->count();
+            $this->withToken($token)->getJson('/api/super-admin/audit-logs?result='.$result)
+                ->assertOk()->assertJsonPath('totalAuditEvents', $total)
+                ->assertJsonPath('pagination.total', $filteredTotal);
+        }
+
+        DB::table('audit_logs')->insert(['action' => 'NEW_AUDIT_EVENT', 'succeeded' => true, 'created_at' => now()]);
+        $this->withToken($token)->getJson('/api/super-admin/dashboard')
+            ->assertOk()->assertJsonPath('metrics.totalAuditEvents', $total + 1);
+        $this->withToken($token)->getJson('/api/super-admin/audit-logs?result=failed')
+            ->assertOk()->assertJsonPath('totalAuditEvents', $total + 1);
+    }
+
+    public function test_platform_dashboard_reports_zero_for_an_empty_audit_log(): void
+    {
+        $response = app(\App\Http\Controllers\SuperAdminController::class)->dashboard();
+
+        $this->assertSame(0, $response->getData(true)['metrics']['totalAuditEvents']);
+        $this->assertSame([], $response->getData(true)['recentActivity']);
+    }
+
+    public function test_platform_organizations_are_paginated_without_duplicate_rows_and_clamp_after_deletions(): void
+    {
+        $this->createSuperAdmin();
+        $token = $this->login('owner@blockbug.test');
+        for ($index = 0; $index < 27; $index++) {
+            $id = 'org-'.str_pad((string) $index, 2, '0', STR_PAD_LEFT);
+            $this->createOrganization($id, $id);
+        }
+        $this->createOrganization('org-deleted', 'Deleted');
+        DB::table('organizations')->where('id', 'org-deleted')->update(['deleted_at' => now()]);
+        $this->createUser('admin-a', 'org-26', 'a@alpha.test', 'admin');
+        $this->createUser('admin-b', 'org-26', 'b@alpha.test', 'admin');
+
+        $first = $this->withToken($token)->getJson('/api/super-admin/organizations')
+            ->assertOk()->assertJsonCount(25, 'organizations')
+            ->assertJsonPath('pagination.total', 27)->assertJsonPath('pagination.perPage', 25)
+            ->assertJsonPath('pagination.currentPage', 1)->assertJsonPath('pagination.lastPage', 2)
+            ->assertJsonPath('pagination.hasNextPage', true)->assertJsonPath('pagination.hasPreviousPage', false)
+            ->assertJsonPath('organizations.0.id', 'org-26')->assertJsonPath('organizations.0.userCount', 2);
+        $second = $this->withToken($token)->getJson('/api/super-admin/organizations?page=2')
+            ->assertOk()->assertJsonCount(2, 'organizations')->assertJsonPath('pagination.currentPage', 2)
+            ->assertJsonPath('pagination.hasNextPage', false)->assertJsonPath('pagination.hasPreviousPage', true);
+        $this->assertSame([], array_intersect(array_column($first->json('organizations'), 'id'), array_column($second->json('organizations'), 'id')));
+        $this->withToken($token)->getJson('/api/super-admin/organizations?page=999')
+            ->assertOk()->assertJsonPath('pagination.currentPage', 2)->assertJsonCount(2, 'organizations');
+
+        DB::table('organizations')->whereIn('id', ['org-00', 'org-01'])->update(['deleted_at' => now()]);
+        $this->withToken($token)->getJson('/api/super-admin/organizations?page=2')
+            ->assertOk()->assertJsonPath('pagination.currentPage', 1)
+            ->assertJsonPath('pagination.lastPage', 1)->assertJsonPath('pagination.total', 25)
+            ->assertJsonCount(25, 'organizations');
+    }
+
+    public function test_platform_invitations_are_paginated_and_exclude_user_invitations(): void
+    {
+        $this->createSuperAdmin();
+        $token = $this->login('owner@blockbug.test');
+        for ($index = 0; $index < 28; $index++) {
+            DB::table('invitations')->insert([
+                'id' => 'invite-'.str_pad((string) $index, 2, '0', STR_PAD_LEFT),
+                'type' => $index === 27 ? 'user' : 'organization',
+                'email' => 'invite-'.$index.'@example.test',
+                'role' => 'admin',
+                'token_hash' => hash('sha256', 'test-token-'.$index),
+                'status' => $index % 2 === 0 ? 'pending' : 'revoked',
+                'created_by_type' => 'platform_admin',
+                'created_by_id' => 'sa-1',
+                'expires_at' => now()->addWeek(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $first = $this->withToken($token)->getJson('/api/super-admin/invitations')
+            ->assertOk()->assertJsonCount(25, 'invitations')->assertJsonPath('invitations.0.id', 'invite-26')
+            ->assertJsonPath('pagination.total', 27)->assertJsonPath('pagination.perPage', 25)
+            ->assertJsonPath('pagination.currentPage', 1)->assertJsonPath('pagination.lastPage', 2)
+            ->assertJsonPath('pagination.hasNextPage', true)->assertJsonPath('pagination.hasPreviousPage', false);
+        $second = $this->withToken($token)->getJson('/api/super-admin/invitations?page=2')
+            ->assertOk()->assertJsonCount(2, 'invitations')->assertJsonPath('pagination.currentPage', 2)
+            ->assertJsonPath('pagination.hasNextPage', false)->assertJsonPath('pagination.hasPreviousPage', true);
+        $this->assertSame([], array_intersect(array_column($first->json('invitations'), 'id'), array_column($second->json('invitations'), 'id')));
+        $this->withToken($token)->getJson('/api/super-admin/invitations?page=999')
+            ->assertOk()->assertJsonPath('pagination.currentPage', 2)->assertJsonCount(2, 'invitations');
+    }
+
+    public function test_platform_table_pagination_handles_empty_lists_and_rejects_invalid_pages(): void
+    {
+        $this->createSuperAdmin();
+        $token = $this->login('owner@blockbug.test');
+        foreach (['organizations', 'invitations'] as $table) {
+            $this->withToken($token)->getJson('/api/super-admin/'.$table.'?page=2')
+                ->assertOk()->assertJsonCount(0, $table)->assertJsonPath('pagination.total', 0)
+                ->assertJsonPath('pagination.currentPage', 1)->assertJsonPath('pagination.lastPage', 1)
+                ->assertJsonPath('pagination.hasNextPage', false)->assertJsonPath('pagination.hasPreviousPage', false);
+            foreach (['0', '-1', 'invalid'] as $page) {
+                $this->withToken($token)->getJson('/api/super-admin/'.$table.'?page='.$page)
+                    ->assertUnprocessable()->assertJsonValidationErrors('page');
+            }
+        }
+    }
+
     public function test_deployment_can_seed_super_admin_from_a_protected_credentials_file_once(): void
     {
         $path = tempnam(sys_get_temp_dir(), 'blockbug-admin-');

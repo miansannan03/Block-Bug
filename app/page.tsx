@@ -31,7 +31,7 @@ const packageTiers = [
     cadence: '/ month',
     description: 'For small teams moving bug reports out of chats and spreadsheets into one accountable workflow.',
     badge: 'Start lean',
-    accent: 'border-border/70 bg-card hover:border-primary/30 hover:bg-primary/5 hover:shadow-[0_18px_50px_rgba(59,130,246,0.10)]',
+    accent: 'border-border/70 bg-card hover:border-primary/30 hover:bg-primary/5 hover:shadow-[0_18px_50px_rgba(124,112,243,0.10)]',
     features: ['Up to 5 team members', 'Up to 3 active projects', 'Bug assignment and status tracking', 'Developer and tester workflows', 'Dashboard overview'],
     bestFor: 'Freelancers, startups, and small QA teams',
   },
@@ -41,7 +41,7 @@ const packageTiers = [
     cadence: '/ month',
     description: 'For growing product teams coordinating releases across managers, developers, and testers.',
     badge: 'Most popular',
-    accent: 'border-border/70 bg-card hover:border-primary/30 hover:bg-primary/5 hover:shadow-[0_18px_50px_rgba(59,130,246,0.10)]',
+    accent: 'border-border/70 bg-card hover:border-primary/30 hover:bg-primary/5 hover:shadow-[0_18px_50px_rgba(124,112,243,0.10)]',
     features: ['Up to 20 team members', 'Up to 10 active projects', 'Sprint planning and carry-over', 'Tester verification and comments', 'Reports and blockchain proof'],
     bestFor: 'Software houses and growing product teams',
   },
@@ -51,7 +51,7 @@ const packageTiers = [
     cadence: '/ month',
     description: 'For established organizations that need more capacity, governance, and operational visibility.',
     badge: 'For larger teams',
-    accent: 'border-border/70 bg-card hover:border-primary/30 hover:bg-primary/5 hover:shadow-[0_18px_50px_rgba(59,130,246,0.10)]',
+    accent: 'border-border/70 bg-card hover:border-primary/30 hover:bg-primary/5 hover:shadow-[0_18px_50px_rgba(124,112,243,0.10)]',
     features: ['Up to 50 team members', 'Unlimited active projects', 'Full activity and audit history', 'Advanced organization controls', 'Priority onboarding and support'],
     bestFor: 'Established teams with multiple projects',
   },
@@ -242,7 +242,7 @@ export default function Home() {
                     <div className="mt-4 space-y-3">
                       {[
                         { label: 'Open', value: stats?.open ?? 0, icon: CircleDot, tone: 'text-red-500' },
-                        { label: 'In Progress', value: stats?.inProgress ?? 0, icon: Clock3, tone: 'text-blue-500' },
+                        { label: 'In Progress', value: stats?.inProgress ?? 0, icon: Clock3, tone: 'text-amber-500' },
                         { label: 'Resolved', value: stats?.resolved ?? 0, icon: CheckCircle2, tone: 'text-emerald-500' },
                       ].map((item) => {
                         const Icon = item.icon
@@ -275,9 +275,9 @@ export default function Home() {
                         <p className="text-3xl font-semibold text-foreground">{dashboard?.quickActions.pendingVerification ?? 0}</p>
                       </div>
                     </div>
-                    <div className="mt-3 rounded-xl border border-blue-400/20 bg-blue-500/5 p-4">
+                    <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
                       <div className="flex items-start gap-3">
-                        <WalletCards className="mt-0.5 h-5 w-5 text-blue-500" />
+                        <WalletCards className="mt-0.5 h-5 w-5 text-primary" />
                         <div>
                           <p className="text-sm font-semibold text-foreground">Package-ready organization billing</p>
                           <p className="mt-1 text-sm leading-6 text-muted-foreground">

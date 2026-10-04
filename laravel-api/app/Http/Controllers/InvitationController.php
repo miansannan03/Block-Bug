@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Support\AuditLogger;
+use App\Support\TablePagination;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -124,9 +125,12 @@ class InvitationController extends Controller
 
     public function organizationInvitations(Request $request): JsonResponse
     {
-        $rows = DB::table('invitations')->where('type', 'organization')->latest()->get();
+        $rows = TablePagination::paginate(DB::table('invitations')->where('type', 'organization')->latest()->orderByDesc('id'), $request);
 
-        return response()->json(['invitations' => $rows->map(fn ($row) => $this->payload($row))->values()]);
+        return response()->json([
+            'invitations' => collect($rows->items())->map(fn ($row) => $this->payload($row))->values(),
+            'pagination' => TablePagination::metadata($rows),
+        ]);
     }
 
     public function userInvitations(Request $request): JsonResponse
