@@ -94,6 +94,11 @@ export interface AuditLog {
 
 export type AuditResultFilter = 'all' | 'success' | 'failed'
 
+export interface AuditOrganizationOption {
+  id: string
+  name: string
+}
+
 export interface TablePagination {
   currentPage: number
   lastPage: number
@@ -507,11 +512,12 @@ export const api = {
     return request<{ ok: boolean }>(`${base}/${id}/revoke`, { method: 'POST' })
   },
 
-  async getPlatformAuditLogs(options: { page?: number; result?: AuditResultFilter } = {}) {
+  async getPlatformAuditLogs(options: { page?: number; result?: AuditResultFilter; organizationId?: string } = {}) {
     const query = new URLSearchParams({ page: String(options.page ?? 1) })
     if (options.result && options.result !== 'all') query.set('result', options.result)
+    if (options.organizationId) query.set('organization_id', options.organizationId)
 
-    return request<{ logs: AuditLog[]; pagination: AuditLogPagination; totalAuditEvents: number }>(`/super-admin/audit-logs?${query.toString()}`)
+    return request<{ logs: AuditLog[]; pagination: AuditLogPagination; totalAuditEvents: number; filters: { organizations: AuditOrganizationOption[] } }>(`/super-admin/audit-logs?${query.toString()}`)
   },
 
   async getPlatformErrorLogs() {

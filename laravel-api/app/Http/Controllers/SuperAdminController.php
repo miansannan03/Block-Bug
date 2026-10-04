@@ -91,6 +91,7 @@ class SuperAdminController extends Controller
         $validated = $request->validate([
             'result' => 'sometimes|in:all,success,failed',
             'page' => 'sometimes|integer|min:1',
+            'organization_id' => 'sometimes|string|max:36',
         ]);
 
         $query = DB::table('audit_logs');
@@ -120,6 +121,9 @@ class SuperAdminController extends Controller
         return response()->json([
             'logs' => collect($logs->items())->map(fn ($row) => $this->auditPayload($row))->values(),
             'totalAuditEvents' => DB::table('audit_logs')->count(),
+            'filters' => [
+                'organizations' => DB::table('organizations')->select('id', 'name')->orderBy('name')->get(),
+            ],
             'pagination' => [
                 'currentPage' => $logs->currentPage(),
                 'lastPage' => $logs->lastPage(),

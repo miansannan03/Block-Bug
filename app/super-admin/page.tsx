@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Activity, AlertTriangle, Building2, Bug, Check, Copy, LayoutDashboard, RefreshCw, Shield, Users } from 'lucide-react'
-import { api, type ApplicationErrorLog, type AuditLog, type AuditLogPagination, type AuditResultFilter, type Invitation, type PlatformMetrics, type PlatformOrganization, type TablePagination } from '@/lib/api'
+import { api, type ApplicationErrorLog, type AuditLog, type AuditLogPagination, type AuditOrganizationOption, type AuditResultFilter, type Invitation, type PlatformMetrics, type PlatformOrganization, type TablePagination } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { SuperAdminHeader } from '@/components/super-admin-header'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 type Section = 'overview' | 'organizations' | 'invitations' | 'audit' | 'errors'
 
@@ -37,6 +38,8 @@ export default function SuperAdminPage() {
   const [recentActivity, setRecentActivity] = useState<AuditLog[]>([])
   const [auditEventCount, setAuditEventCount] = useState<number | null>(null)
   const [auditResult, setAuditResult] = useState<AuditResultFilter>('all')
+  const [auditOrganization, setAuditOrganization] = useState('')
+  const [auditOrganizations, setAuditOrganizations] = useState<AuditOrganizationOption[]>([])
   const [auditPage, setAuditPage] = useState(1)
   const [auditPagination, setAuditPagination] = useState<AuditLogPagination>({
     currentPage: 1,
@@ -66,9 +69,10 @@ export default function SuperAdminPage() {
     setError('')
     setOrganizationLoading(true)
     setInvitationLoading(true)
+    setAuditLoading(true)
     try {
       const [dashboard, orgs, invites, audits, errors] = await Promise.all([
-        api.getPlatformDashboard(), api.getOrganizations({ page: organizationPagination.currentPage }), api.getOrganizationInvitations({ page: invitationPage }), api.getPlatformAuditLogs({ page: auditPage, result: auditResult }), api.getPlatformErrorLogs(),
+        api.getPlatformDashboard(), api.getOrganizations({ page: organizationPagination.currentPage }), api.getOrganizationInvitations({ page: invitationPage }), api.getPlatformAuditLogs({ page: auditPage, result: auditResult, organizationId: auditOrganization }), api.getPlatformErrorLogs(),
       ])
       setMetrics(dashboard.metrics)
       setRecentActivity(dashboard.recentActivity)
@@ -77,6 +81,7 @@ export default function SuperAdminPage() {
       setInvitations(invites.invitations)
       setInvitationPagination(invites.pagination)
       setAuditLogs(audits.logs)
+      setAuditOrganizations(audits.filters.organizations)
       setAuditPagination(audits.pagination)
       setAuditEventCount(audits.totalAuditEvents)
       setAuditPage(audits.pagination.currentPage)
@@ -86,6 +91,7 @@ export default function SuperAdminPage() {
     } finally {
       setOrganizationLoading(false)
       setInvitationLoading(false)
+      setAuditLoading(false)
     }
   }
 
@@ -118,8 +124,9 @@ export default function SuperAdminPage() {
           break
         }
         case 'audit': {
-          const result = await api.getPlatformAuditLogs({ page: auditPage, result: auditResult })
+          const result = await api.getPlatformAuditLogs({ page: auditPage, result: auditResult, organizationId: auditOrganization })
           setAuditLogs(result.logs)
+          setAuditOrganizations(result.filters.organizations)
           setAuditPagination(result.pagination)
           setAuditEventCount(result.totalAuditEvents)
           setAuditPage(result.pagination.currentPage)
@@ -181,17 +188,20 @@ export default function SuperAdminPage() {
     }
   }
 
-  const loadAuditPage = async (page: number, result: AuditResultFilter = auditResult) => {
+  const loadAuditPage = async (page: number, result: AuditResultFilter = auditResult, organizationId = auditOrganization) => {
     if (auditLoading || refreshing) return
 
     setAuditLoading(true)
     setError('')
     try {
-      const response = await api.getPlatformAuditLogs({ page, result })
+      const response = await api.getPlatformAuditLogs({ page, result, organizationId })
       setAuditLogs(response.logs)
+      setAuditOrganizations(response.filters.organizations)
       setAuditPagination(response.pagination)
       setAuditEventCount(response.totalAuditEvents)
       setAuditPage(response.pagination.currentPage)
+      setAuditResult(result)
+      setAuditOrganization(organizationId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Audit logs could not be loaded.')
     } finally {
@@ -200,8 +210,11 @@ export default function SuperAdminPage() {
   }
 
   const changeAuditResult = (result: AuditResultFilter) => {
-    setAuditResult(result)
     void loadAuditPage(1, result)
+  }
+
+  const changeAuditOrganization = (organizationId: string) => {
+    void loadAuditPage(1, auditResult, organizationId)
   }
 
   useEffect(() => {
@@ -436,9 +449,12 @@ export default function SuperAdminPage() {
             <LogTable
               logs={auditLogs}
               filter={auditResult}
+              organizationFilter={auditOrganization}
+              organizations={auditOrganizations}
               pagination={auditPagination}
               loading={auditLoading || refreshing}
               onFilterChange={changeAuditResult}
+              onOrganizationChange={changeAuditOrganization}
               onPageChange={(page) => void loadAuditPage(page)}
             />
           )}
@@ -452,16 +468,22 @@ export default function SuperAdminPage() {
 function LogTable({
   logs,
   filter,
+  organizationFilter,
+  organizations,
   pagination,
   loading,
   onFilterChange,
+  onOrganizationChange,
   onPageChange,
 }: {
   logs: AuditLog[]
   filter: AuditResultFilter
+  organizationFilter: string
+  organizations: AuditOrganizationOption[]
   pagination: AuditLogPagination
   loading: boolean
   onFilterChange: (filter: AuditResultFilter) => void
+  onOrganizationChange: (organizationId: string) => void
   onPageChange: (page: number) => void
 }) {
   const filters: Array<{ value: AuditResultFilter; label: string }> = [
@@ -469,6 +491,7 @@ function LogTable({
     { value: 'success', label: 'Success' },
     { value: 'failed', label: 'Failed' },
   ]
+  const organizationNames = new Map(organizations.map((organization) => [organization.id, organization.name]))
 
   return (
     <Card className="overflow-hidden">
@@ -476,27 +499,54 @@ function LogTable({
         <p className="text-sm text-muted-foreground">
           {pagination.total} audit {pagination.total === 1 ? 'event' : 'events'}
         </p>
-        <div className="inline-flex rounded-lg border bg-muted/20 p-1" role="group" aria-label="Filter audit logs by result">
-          {filters.map(({ value, label }) => (
-            <Button
-              key={value}
-              type="button"
-              size="sm"
-              variant={filter === value ? 'default' : 'ghost'}
-              disabled={loading}
-              aria-pressed={filter === value}
-              onClick={() => onFilterChange(value)}
-            >
-              {label}
-            </Button>
-          ))}
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <Select value={organizationFilter || '__all_organizations__'} disabled={loading} onValueChange={(value) => onOrganizationChange(value === '__all_organizations__' ? '' : value)}>
+            <SelectTrigger aria-label="Filter audit logs by organization" className="w-full sm:w-56"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all_organizations__">All organizations</SelectItem>
+              {organizations.map((organization) => (
+                <SelectItem key={organization.id} value={organization.id}>{organization.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="inline-flex rounded-lg border bg-muted/20 p-1" role="group" aria-label="Filter audit logs by result">
+            {filters.map(({ value, label }) => (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={filter === value ? 'default' : 'ghost'}
+                disabled={loading}
+                aria-pressed={filter === value}
+                onClick={() => onFilterChange(value)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-b bg-muted/30 text-left"><tr>{['Time', 'Action', 'Role', 'Organization', 'Resource', 'Result'].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
-          <tbody>{logs.map((log) => <tr key={log.id} className="border-b last:border-0"><td className="whitespace-nowrap px-4 py-4">{new Date(log.createdAt).toLocaleString()}</td><td className="px-4 py-4 font-medium">{log.action}</td><td className="px-4 py-4">{log.actorRole || 'system'}</td><td className="px-4 py-4 font-mono text-xs">{log.organizationId || 'platform'}</td><td className="px-4 py-4">{log.entityType ? `${log.entityType}:${log.entityId || ''}` : '—'}</td><td className="px-4 py-4"><Badge variant={log.succeeded ? 'default' : 'destructive'}>{log.succeeded ? 'Success' : 'Failed'}</Badge></td></tr>)}</tbody>
+          <tbody>{logs.map((log) => (
+            <tr key={log.id} className="border-b last:border-0">
+              <td className="whitespace-nowrap px-4 py-4">{new Date(log.createdAt).toLocaleString()}</td>
+              <td className="px-4 py-4">
+                <p className="font-medium">{log.action}</p>
+                {typeof log.metadata?.message === 'string' && <p className="mt-1 text-xs text-muted-foreground">{log.metadata.message}</p>}
+                {['seeded_activity_backfill', 'seeded_bug_population'].includes(String(log.metadata?.source)) && <p className="mt-1 text-xs text-muted-foreground">Seeded history</p>}
+              </td>
+              <td className="whitespace-nowrap px-4 py-4">{log.actorRole || 'system'}</td>
+              <td className="px-4 py-4">
+                <p>{log.organizationId ? organizationNames.get(log.organizationId) || log.organizationId : 'Platform'}</p>
+                {log.organizationId && <p className="mt-1 font-mono text-xs text-muted-foreground">{log.organizationId}</p>}
+              </td>
+              <td className="px-4 py-4">{log.entityType ? `${log.entityType}:${log.entityId || ''}` : '—'}</td>
+              <td className="px-4 py-4"><Badge variant={log.succeeded ? 'default' : 'destructive'}>{log.succeeded ? 'Success' : 'Failed'}</Badge></td>
+            </tr>
+          ))}</tbody>
         </table>
         {logs.length === 0 && <p className="p-8 text-center text-muted-foreground">No {filter === 'all' ? '' : `${filter} `}audit activity found.</p>}
       </div>
