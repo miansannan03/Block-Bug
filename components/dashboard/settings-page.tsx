@@ -7,6 +7,7 @@ import { defaultSystemSettings, formatDateWithSettings } from '@/lib/system-sett
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const preferenceLabels = [
@@ -541,16 +542,18 @@ export function SettingsPage() {
         <p className="mb-4 text-sm text-muted-foreground">These settings control which update alerts appear in your notification feed.</p>
         <div className="space-y-4">
           {preferenceLabels.map((pref) => (
-            <label key={pref.key} className="flex items-center gap-3 p-3 bg-muted rounded-lg cursor-pointer hover:bg-muted/80 transition">
-              <input
-                type="checkbox"
+            <label key={pref.key} htmlFor={`preference-${pref.key}`} className="flex items-center gap-3 p-3 bg-muted rounded-lg cursor-pointer hover:bg-muted/80 transition">
+              <Checkbox
+                id={`preference-${pref.key}`}
                 checked={Boolean(preferences[pref.key])}
-                onChange={(event) => setPreferences({ ...preferences, [pref.key]: event.target.checked })}
-                className="w-4 h-4 rounded"
+                onCheckedChange={(checked) => setPreferences((current) => ({ ...current, [pref.key]: checked === true }))}
+                aria-labelledby={`preference-${pref.key}-label`}
+                aria-describedby={`preference-${pref.key}-description`}
+                disabled={isBusy('preferences')}
               />
               <div className="flex-1">
-                <p className="font-medium text-foreground">{pref.name}</p>
-                <p className="text-xs text-muted-foreground">{pref.description}</p>
+                <p id={`preference-${pref.key}-label`} className="font-medium text-foreground">{pref.name}</p>
+                <p id={`preference-${pref.key}-description`} className="text-xs text-muted-foreground">{pref.description}</p>
               </div>
             </label>
           ))}
